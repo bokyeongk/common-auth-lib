@@ -2,6 +2,7 @@ package com.hubilon.auth;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -19,10 +20,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Servlet filter that validates the Bearer JWT on every request.
- * On success, populates {@link UserContext} for the duration of the request.
- * On failure, returns 401 immediately.
- * Paths listed in {@code keycloak.permit-all-paths} bypass this filter entirely.
+ * 모든 요청에서 JWT를 검증하는 필터.
+ *
+ * <p>토큰 추출 우선순위:
+ * <ol>
+ *   <li>Authorization: Bearer {token} 헤더 (API 클라이언트 / 모바일)</li>
+ *   <li>HttpOnly 쿠키 {@code access_token} (브라우저 클라이언트)</li>
+ * </ol>
+ *
+ * 검증 성공 시 {@link UserContext}에 유저 정보를 저장하고 요청을 통과시킵니다.
+ * 검증 실패 시 401을 즉시 반환합니다.
+ * {@code keycloak.permit-all-paths}에 등록된 경로는 이 필터를 건너뜁니다.
  */
 public class KeycloakTokenFilter extends OncePerRequestFilter {
 
@@ -47,10 +55,10 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        String token = extractBearerToken(request);
+        String token = extractToken(request);
 
         if (!StringUtils.hasText(token)) {
-            sendUnauthorized(response, "Authorization header is missing or not a Bearer token");
+            sendUnauthorized(response, "Token is missing");
             return;
         }
 
@@ -65,11 +73,24 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
         }
     }
 
-    private String extractBearerToken(HttpServletRequest request) {
+    /**
+     * 1순위: Authorization 헤더 (Bearer) → 2순위: HttpOnly 쿠키
+     */
+    private String extractToken(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
         if (StringUtils.hasText(header) && header.startsWith(BEARER_PREFIX)) {
             return header.substring(BEARER_PREFIX.length());
         }
+
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (KeycloakProperties.ACCESS_TOKEN_COOKIE.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+
         return null;
     }
 
@@ -80,7 +101,6 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
         String email = jwt.getClaimAsString("email");
         List<String> roles = new ArrayList<>();
 
-        // Realm-level roles
         Map<String, Object> realmAccess = jwt.getClaim("realm_access");
         if (realmAccess instanceof Map && realmAccess.get("roles") instanceof List<?> realmRoles) {
             realmRoles.stream()
@@ -89,7 +109,6 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
                     .forEach(roles::add);
         }
 
-        // Client-level roles
         Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
         if (resourceAccess instanceof Map) {
             Object clientAccess = resourceAccess.get(properties.getClientId());

@@ -22,6 +22,21 @@ public class KeycloakProperties {
     /** OIDC scope. 기본값: openid profile email */
     private String scope = "openid profile email";
 
+    /** 로그인 완료(callback) 후 리다이렉트할 URI. 기본값: / */
+    private String postLoginRedirectUri = "/";
+
+    /**
+     * 쿠키에 Secure 플래그 적용 여부.
+     * 운영(HTTPS) 환경: true / 로컬 개발(HTTP) 환경: false
+     */
+    private boolean secureCookie = true;
+
+    /** access_token 쿠키 이름 */
+    public static final String ACCESS_TOKEN_COOKIE = "access_token";
+
+    /** refresh_token 쿠키 이름 */
+    public static final String REFRESH_TOKEN_COOKIE = "refresh_token";
+
     /** Ant-pattern paths that bypass token validation (e.g. /public/**, /health) */
     private List<String> permitAllPaths = new ArrayList<>();
 
@@ -49,6 +64,12 @@ public class KeycloakProperties {
 
     public String getScope() { return scope; }
     public void setScope(String scope) { this.scope = scope; }
+
+    public String getPostLoginRedirectUri() { return postLoginRedirectUri; }
+    public void setPostLoginRedirectUri(String postLoginRedirectUri) { this.postLoginRedirectUri = postLoginRedirectUri; }
+
+    public boolean isSecureCookie() { return secureCookie; }
+    public void setSecureCookie(boolean secureCookie) { this.secureCookie = secureCookie; }
 
     public List<String> getPermitAllPaths() { return permitAllPaths; }
     public void setPermitAllPaths(List<String> permitAllPaths) { this.permitAllPaths = permitAllPaths; }

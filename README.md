@@ -1,7 +1,7 @@
 # common-auth-lib
 
-Spring Boot 마이크로서비스에서 Keycloak **Authorization Code Flow** 인증을 공통으로 처리하는 라이브러리입니다.
-**Git Submodule** 방식으로 배포 없이 바로 사용합니다.
+Spring Boot 마이크로서비스용 Keycloak **Authorization Code Flow** 공통 인증 라이브러리.
+**GitHub Packages**로 배포되며, 각 서비스는 일반 Maven 의존성처럼 추가합니다.
 
 ## 인증 흐름
 
@@ -10,58 +10,93 @@ Spring Boot 마이크로서비스에서 Keycloak **Authorization Code Flow** 인
        → Keycloak 로그인 페이지 (커스텀 테마) 리다이렉트
        → 로그인 완료 → GET /auth/callback?code=xxx&state=yyy
        → code → Access Token + Refresh Token + ID Token 교환
-       → 이후 API 요청: Authorization: Bearer {access_token}
+       → HttpOnly 쿠키로 발급 (JS 접근 불가)
+       → 이후 API 요청: access_token 쿠키 자동 전송
                         ↓
                  KeycloakTokenFilter (자동 JWT 검증)
 ```
 
 ---
 
-## Git Submodule 설정
+## GitHub Packages 배포
 
-### 1. 서브모듈 추가
+### 자동 배포 (GitHub Actions)
 
-각 서비스 저장소 루트에서 실행합니다.
+`main` 브랜치에 push하면 자동으로 GitHub Packages에 배포됩니다.
+
+```
+.github/workflows/publish.yml
+  → push to main
+  → ./gradlew build (빌드 + 테스트)
+  → ./gradlew publish (GitHub Packages 업로드)
+```
+
+### 수동 배포
 
 ```bash
-# libs 디렉토리에 추가 (경로는 서비스 정책에 따라 변경 가능)
-git submodule add https://github.com/your-org/common-auth-lib.git libs/common-auth-lib
-git commit -m "chore: add common-auth-lib submodule"
+export GITHUB_ACTOR=your-github-username
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx   # write:packages 권한 필요
+export GITHUB_REPOSITORY=your-org/common-auth-lib
+
+./gradlew publish
 ```
 
-추가 후 서비스 디렉토리 구조:
+---
+
+## 각 서비스에서 사용하는 방법
+
+### 1. GitHub Token 발급
+
+GitHub Packages 패키지를 읽으려면 `read:packages` 권한이 있는 토큰이 필요합니다.
+
 ```
-my-service/
-├── libs/
-│   └── common-auth-lib/     ← submodule
-├── src/
-├── build.gradle
-└── settings.gradle
+GitHub → Settings → Developer settings
+→ Personal access tokens → Tokens (classic)
+→ Generate new token (classic)
+→ 권한 체크: read:packages
+→ 토큰 복사 (ghp_로 시작)
 ```
 
-### 2. settings.gradle 설정
+> CI 환경(GitHub Actions)에서는 `secrets.GITHUB_TOKEN`이 자동으로 제공되어 별도 발급 불필요.
 
-`includeBuild`를 사용하면 Maven 배포 없이 Gradle이 로컬 빌드로 자동 대체합니다.
+### 2. 환경변수 설정
 
-```groovy
-// settings.gradle
-rootProject.name = 'my-service'
+**로컬 개발 환경** — `~/.bashrc` 또는 `~/.zshrc`에 추가:
 
-// common-auth-lib를 composite build로 포함
-includeBuild 'libs/common-auth-lib'
+```bash
+export GITHUB_ACTOR=your-github-username
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+```
+
+**GitHub Actions CI** — `settings.yml`에 자동 주입되므로 별도 설정 불필요:
+
+```yaml
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_ACTOR: ${{ github.actor }}
 ```
 
 ### 3. build.gradle 설정
 
 ```groovy
-// build.gradle
+repositories {
+    mavenCentral()
+    maven {
+        name = 'GitHubPackages'
+        url = uri('https://maven.pkg.github.com/your-org/common-auth-lib')
+        credentials {
+            username = System.getenv('GITHUB_ACTOR') ?: ''
+            password = System.getenv('GITHUB_TOKEN') ?: ''
+        }
+    }
+}
+
 dependencies {
-    // includeBuild 선언으로 Gradle이 libs/common-auth-lib 빌드를 자동으로 참조
-    implementation 'com.hubilon:common-auth-lib'
+    implementation 'com.mycompany:common-auth-lib:1.0.0'
 }
 ```
 
-Maven에 배포하거나 `publishToMavenLocal`을 실행할 필요가 없습니다.
+> `your-org/common-auth-lib` 부분을 실제 GitHub 조직명/저장소명으로 변경하세요.
 
 ### 4. application.yml 설정
 
@@ -73,7 +108,8 @@ keycloak:
   client-secret: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
   redirect-uri: http://my-service/auth/callback
   post-logout-redirect-uri: http://my-service/auth/login
-  scope: openid profile email          # 기본값, 생략 가능
+  post-login-redirect-uri: /               # 로그인 후 이동 경로
+  secure-cookie: true                       # 로컬 HTTP 개발 시 false
   permit-all-paths:
     - /auth/login
     - /auth/callback
@@ -82,177 +118,46 @@ keycloak:
     - /actuator/**
 ```
 
----
-
-## 서브모듈 업데이트
-
-### common-auth-lib에 변경사항이 생겼을 때
-
-```bash
-# 1. common-auth-lib 최신 커밋으로 업데이트
-git submodule update --remote libs/common-auth-lib
-
-# 2. 변경사항 확인
-git diff libs/common-auth-lib
-
-# 3. 서비스 저장소에 커밋
-git add libs/common-auth-lib
-git commit -m "chore: update common-auth-lib to latest"
-```
-
-### 모든 서브모듈 일괄 업데이트
-
-```bash
-git submodule update --remote --merge
-```
-
----
-
-## 팀원이 처음 클론할 때
-
-서브모듈은 기본적으로 비어있는 상태로 클론됩니다.
-
-```bash
-# 방법 1: 클론과 동시에 서브모듈 초기화 (권장)
-git clone --recurse-submodules https://github.com/your-org/my-service.git
-
-# 방법 2: 이미 클론된 경우
-git submodule update --init --recursive
-```
-
----
-
-## 컨트롤러 추가
+### 5. 컨트롤러 추가
 
 `src/main/java/com/hubilon/auth/example/AuthController.java`를 서비스에 복사합니다.
-
-```java
-@RestController
-@RequestMapping("/auth")
-public class AuthController {
-
-    private final KeycloakClient keycloakClient;
-
-    // [STEP 1] Keycloak 로그인 페이지로 리다이렉트
-    @GetMapping("/login")
-    public void login(HttpSession session, HttpServletResponse response) throws IOException {
-        String state = UUID.randomUUID().toString();
-        session.setAttribute("oauth_state", state);
-        response.sendRedirect(keycloakClient.getAuthorizationUrl(state));
-    }
-
-    // [STEP 2] 콜백: code → 토큰 교환
-    @GetMapping("/callback")
-    public ResponseEntity<TokenResponse> callback(
-            @RequestParam String code,
-            @RequestParam String state,
-            HttpSession session) {
-
-        String savedState = (String) session.getAttribute("oauth_state");
-        session.removeAttribute("oauth_state");
-        if (savedState == null || !savedState.equals(state)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid state parameter");
-        }
-
-        TokenResponse tokens = keycloakClient.handleCallback(code);
-        if (tokens.getIdToken() != null) {
-            session.setAttribute("id_token", tokens.getIdToken());
-        }
-        return ResponseEntity.ok(tokens);
-    }
-
-    // [STEP 3] 로그아웃 (Keycloak SSO 세션까지 종료)
-    @PostMapping("/logout")
-    public void logout(HttpSession session, HttpServletResponse response) throws IOException {
-        String idToken = (String) session.getAttribute("id_token");
-        session.invalidate();
-        response.sendRedirect(keycloakClient.getLogoutUrl(idToken != null ? idToken : ""));
-    }
-
-    // Access Token 재발급
-    @PostMapping("/refresh")
-    public ResponseEntity<TokenResponse> refresh(@RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(keycloakClient.refreshToken(request.refreshToken()));
-    }
-
-    public record RefreshRequest(String refreshToken) {}
-}
-```
+패키지명만 변경하면 바로 사용 가능합니다.
 
 ---
 
-## 현재 유저 정보 조회
+## 버전 업데이트 방법
 
-```java
-// 방법 1: @CurrentUser 어노테이션
-@GetMapping("/api/me")
-public ResponseEntity<UserInfo> me(@CurrentUser UserInfo user) {
-    return ResponseEntity.ok(user);
-}
+### 1. build.gradle 버전 변경
 
-// 방법 2: UserContext 정적 메서드
-String userId = UserContext.getUserId();
-String email  = UserContext.getEmail();
-List<String> roles = UserContext.getRoles();
-boolean isAdmin = UserContext.hasRole("admin");
+```groovy
+// common-auth-lib/build.gradle
+version = '1.1.0'   // 버전 증가
 ```
 
----
+### 2. main 브랜치에 push
 
-## 커스텀 SecurityFilterChain
+```bash
+git add build.gradle
+git commit -m "chore: bump version to 1.1.0"
+git push origin main
+# → GitHub Actions가 자동으로 GitHub Packages에 배포
+```
 
-기본 설정 대신 직접 구성할 때:
+### 3. 소비 서비스에서 버전 업데이트
 
-```java
-@Configuration
-public class MySecurityConfig {
-
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                    KeycloakTokenFilter filter) throws Exception {
-        return http
-            .csrf(csrf -> csrf.disable())
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/auth/**", "/public/**").permitAll()
-                .requestMatchers("/admin/**").hasRole("admin")
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class)
-            .build();
-    }
+```groovy
+// 각 서비스의 build.gradle
+dependencies {
+    implementation 'com.mycompany:common-auth-lib:1.1.0'  // 버전 변경
 }
 ```
 
----
-
-## Keycloak Admin Console 설정
-
-### 클라이언트 설정
-
-```
-Clients → {client-id} → Settings 탭
+```bash
+./gradlew build  # 새 버전 자동 다운로드
 ```
 
-| 항목 | 값 |
-|---|---|
-| Client authentication | ON (confidential client) |
-| Authentication flow | Standard flow ✓ (Authorization Code) |
-| Direct access grants | OFF (ROPC 비활성화) |
-| Valid redirect URIs | `http://my-service/auth/callback` |
-| Valid post logout redirect URIs | `http://my-service/auth/login` |
-| Web origins | `http://my-service` |
-
-> **Valid redirect URIs**는 `keycloak.redirect-uri`와 정확히 일치해야 합니다.
-
-### 클라이언트별 커스텀 테마 적용
-
-```
-Clients → {client-id} → Login settings 탭
-→ Login theme: {your-custom-theme} 선택
-```
-
-테마 파일 위치: `{keycloak-root}/themes/{theme-name}/login/`
+> GitHub Packages는 이미 배포된 버전 덮어쓰기를 허용하지 않습니다.
+> 변경사항은 항상 버전을 올려서 배포하세요.
 
 ---
 
@@ -261,12 +166,21 @@ Clients → {client-id} → Login settings 탭
 | 클래스 | 역할 |
 |---|---|
 | `KeycloakClient` | Authorization URL 생성 / code→토큰 교환 / 로그아웃 URL / 토큰 재발급 |
-| `KeycloakTokenFilter` | 모든 API 요청의 Bearer 토큰 자동 검증 |
-| `SecurityConfig` | Spring Security 필터 자동 등록 |
+| `KeycloakTokenFilter` | 모든 API 요청의 Bearer 토큰 + HttpOnly 쿠키 자동 검증 |
+| `SecurityConfig` | Spring Security + CSRF(CookieCsrfTokenRepository) 자동 등록 |
 | `UserContext` | ThreadLocal 유저 정보 (userId, email, roles) |
 | `KeycloakProperties` | `application.yml` 설정값 바인딩 |
 | `@CurrentUser` | 컨트롤러 파라미터 유저 정보 주입 |
-| `AuthController` (example) | 각 서비스에 복사해서 쓰는 예시 컨트롤러 |
+| `AuthController` (example) | 각 서비스에 복사해서 쓰는 컨트롤러 예시 |
+
+## 보안 설계
+
+| 항목 | 구현 |
+|---|---|
+| 토큰 저장 | `access_token`, `refresh_token` → HttpOnly 쿠키 (JS 접근 불가) |
+| CSRF 보호 | `XSRF-TOKEN` 쿠키(JS 읽기 가능) + `X-XSRF-TOKEN` 헤더 검증 |
+| 쿠키 속성 | `SameSite=Strict`, `Secure` (운영), `Path=/` |
+| SSO 로그아웃 | `id_token_hint`로 Keycloak SSO 세션까지 완전 종료 |
 
 ## JWT 클레임 → UserInfo 매핑
 
@@ -277,3 +191,10 @@ Clients → {client-id} → Login settings 탭
 | `email` | `email` |
 | `realm_access.roles` | `roles` (realm 롤) |
 | `resource_access.{client-id}.roles` | `roles` (클라이언트 롤) |
+
+## 빌드
+
+```bash
+./gradlew build    # 빌드 + 테스트
+./gradlew test     # 테스트만
+```

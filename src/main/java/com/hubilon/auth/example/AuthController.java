@@ -1,11 +1,17 @@
 package com.hubilon.auth.example;
 
 import com.hubilon.auth.KeycloakClient;
+import com.hubilon.auth.KeycloakProperties;
 import com.hubilon.auth.TokenResponse;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -13,12 +19,12 @@ import java.io.IOException;
 import java.util.UUID;
 
 /**
- * Authorization Code Flow 컨트롤러 예시.
+ * Authorization Code Flow + HttpOnly 쿠키 + CSRF Token 컨트롤러 예시.
  *
  * 이 파일을 각 서비스에 복사하여 사용하세요.
- * 패키지명은 각 서비스에 맞게 변경하고, @RequiredArgsConstructor 등 원하는 방식으로 주입하세요.
+ * 패키지명만 서비스에 맞게 변경하면 됩니다.
  *
- * application.yml 필수 설정:
+ * <h3>필수 application.yml 설정</h3>
  * <pre>
  * keycloak:
  *   server-url: http://keycloak-server:8080
@@ -27,10 +33,18 @@ import java.util.UUID;
  *   client-secret: xxxxxxxx
  *   redirect-uri: http://my-service/auth/callback
  *   post-logout-redirect-uri: http://my-service/auth/login
+ *   post-login-redirect-uri: /               # 로그인 후 이동할 경로
+ *   secure-cookie: true                       # 로컬 HTTP 개발 시 false
  *   permit-all-paths:
  *     - /auth/login
  *     - /auth/callback
  * </pre>
+ *
+ * <h3>프론트엔드 연동</h3>
+ * <ul>
+ *   <li>POST 요청 시 {@code X-XSRF-TOKEN} 헤더에 {@code XSRF-TOKEN} 쿠키 값을 담아 전송</li>
+ *   <li>토큰은 HttpOnly 쿠키로 자동 관리되므로 JS에서 직접 다루지 않습니다</li>
+ * </ul>
  */
 @RestController
 @RequestMapping("/auth")
@@ -40,15 +54,16 @@ public class AuthController {
     private static final String SESSION_ID_TOKEN_KEY = "id_token";
 
     private final KeycloakClient keycloakClient;
+    private final KeycloakProperties properties;
 
-    public AuthController(KeycloakClient keycloakClient) {
+    public AuthController(KeycloakClient keycloakClient, KeycloakProperties properties) {
         this.keycloakClient = keycloakClient;
+        this.properties = properties;
     }
 
     /**
-     * [STEP 1] 로그인 시작 - Keycloak 로그인 페이지로 리다이렉트.
-     *
-     * 프론트엔드에서 로그인 버튼 클릭 시 이 URL로 이동시키면 됩니다.
+     * [STEP 1] 로그인 시작.
+     * CSRF 방지용 state를 세션에 저장하고 Keycloak 로그인 페이지로 리다이렉트합니다.
      * GET /auth/login
      */
     @GetMapping("/login")
@@ -59,63 +74,111 @@ public class AuthController {
     }
 
     /**
-     * [STEP 2] Keycloak 로그인 완료 후 콜백 처리.
-     *
-     * Keycloak이 로그인 완료 후 이 URL로 code와 state를 전달합니다.
-     * GET /auth/callback?code=xxx&state=yyy
-     *
-     * 반환된 토큰을 프론트엔드에 전달하는 방법은 서비스 정책에 따라 결정하세요:
-     * - 쿠키에 저장 (HttpOnly, Secure 권장)
-     * - 응답 바디로 전달 후 프론트엔드에서 저장
-     * - 세션에 저장 (서버 사이드 렌더링)
+     * [STEP 2] Keycloak 콜백 처리.
+     * code를 토큰으로 교환하고 access_token, refresh_token을 HttpOnly 쿠키로 발급합니다.
+     * GET /auth/callback?code=...&state=...
      */
     @GetMapping("/callback")
-    public ResponseEntity<TokenResponse> callback(
-            @RequestParam String code,
-            @RequestParam String state,
-            HttpSession session) {
+    public void callback(@RequestParam String code,
+                         @RequestParam String state,
+                         HttpSession session,
+                         HttpServletResponse response) throws IOException {
 
-        // CSRF 방지: 세션에 저장된 state와 비교
         String savedState = (String) session.getAttribute(SESSION_STATE_KEY);
         session.removeAttribute(SESSION_STATE_KEY);
 
         if (savedState == null || !savedState.equals(state)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid state parameter");
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid state parameter");
+            return;
         }
 
         TokenResponse tokens = keycloakClient.handleCallback(code);
 
-        // 로그아웃 시 id_token_hint로 사용하기 위해 세션에 저장
-        if (tokens.getIdToken() != null) {
+        // id_token은 SSO 로그아웃(id_token_hint)에 필요하므로 서버 세션에 보관
+        if (StringUtils.hasText(tokens.getIdToken())) {
             session.setAttribute(SESSION_ID_TOKEN_KEY, tokens.getIdToken());
         }
 
-        return ResponseEntity.ok(tokens);
+        // access_token: API 요청마다 자동 전송 (HttpOnly, JS 접근 불가)
+        setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
+                tokens.getAccessToken(), (int) tokens.getExpiresIn());
+
+        // refresh_token: /auth/refresh 엔드포인트가 서버에서 직접 읽음 (HttpOnly, JS 접근 불가)
+        setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
+                tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
+
+        response.sendRedirect(properties.getPostLoginRedirectUri());
     }
 
     /**
-     * [STEP 3] 로그아웃 - Keycloak SSO 세션까지 완전 종료.
-     *
-     * Keycloak 로그아웃 페이지로 리다이렉트 → SSO 세션 만료 → post-logout-redirect-uri로 이동.
-     * POST /auth/logout
+     * [STEP 3] 로그아웃.
+     * HttpOnly 쿠키를 삭제하고 Keycloak SSO 세션까지 만료시킵니다.
+     * POST /auth/logout  (X-XSRF-TOKEN 헤더 필요)
      */
     @PostMapping("/logout")
     public void logout(HttpSession session, HttpServletResponse response) throws IOException {
         String idToken = (String) session.getAttribute(SESSION_ID_TOKEN_KEY);
         session.invalidate();
 
-        String logoutUrl = keycloakClient.getLogoutUrl(idToken != null ? idToken : "");
-        response.sendRedirect(logoutUrl);
+        clearAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE);
+        clearAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE);
+
+        response.sendRedirect(keycloakClient.getLogoutUrl(idToken != null ? idToken : ""));
     }
 
     /**
      * Access Token 재발급.
-     * POST /auth/refresh
+     * refresh_token HttpOnly 쿠키를 서버가 직접 읽어 새 토큰을 발급합니다.
+     * POST /auth/refresh  (X-XSRF-TOKEN 헤더 필요)
      */
     @PostMapping("/refresh")
-    public ResponseEntity<TokenResponse> refresh(@RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(keycloakClient.refreshToken(request.refreshToken()));
+    public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
+        String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
+
+        if (!StringUtils.hasText(refreshToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        TokenResponse tokens = keycloakClient.refreshToken(refreshToken);
+
+        setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
+                tokens.getAccessToken(), (int) tokens.getExpiresIn());
+        setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
+                tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
+
+        return ResponseEntity.noContent().build();
     }
 
-    public record RefreshRequest(String refreshToken) {}
+    // ── 쿠키 유틸 ────────────────────────────────────────────────────
+
+    private void setAuthCookie(HttpServletResponse response, String name, String value, int maxAge) {
+        ResponseCookie cookie = ResponseCookie.from(name, value)
+                .httpOnly(true)
+                .secure(properties.isSecureCookie())
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(maxAge)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private void clearAuthCookie(HttpServletResponse response, String name) {
+        ResponseCookie cookie = ResponseCookie.from(name, "")
+                .httpOnly(true)
+                .secure(properties.isSecureCookie())
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(0)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private String extractCookieValue(HttpServletRequest request, String name) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) return null;
+        for (Cookie cookie : cookies) {
+            if (name.equals(cookie.getName())) return cookie.getValue();
+        }
+        return null;
+    }
 }

@@ -92,13 +92,16 @@ public class KeycloakClient {
      * @return Keycloak logout URL
      */
     public String getLogoutUrl(String idToken) {
-        return UriComponentsBuilder
+        UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(properties.getLogoutUri())
-                .queryParam("id_token_hint", idToken)
                 .queryParam("post_logout_redirect_uri", properties.getPostLogoutRedirectUri())
-                .queryParam("client_id", properties.getClientId())
-                .build()
-                .toUriString();
+                .queryParam("client_id", properties.getClientId());
+
+        if (org.springframework.util.StringUtils.hasText(idToken)) {
+            builder.queryParam("id_token_hint", idToken);
+        }
+
+        return builder.build().toUriString();
     }
 
     /**

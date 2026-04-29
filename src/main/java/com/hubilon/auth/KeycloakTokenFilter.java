@@ -7,9 +7,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -18,6 +21,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 모든 요청에서 JWT를 검증하는 필터.
@@ -64,12 +68,20 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
 
         try {
             Jwt jwt = jwtDecoder.decode(token);
-            UserContext.set(buildUserInfo(jwt));
+            UserInfo userInfo = buildUserInfo(jwt);
+            UserContext.set(userInfo);
+
+            List<SimpleGrantedAuthority> authorities = userInfo.getRoles().stream()
+                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                    .collect(Collectors.toList());
+            SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, authorities));
+
             chain.doFilter(request, response);
         } catch (JwtException e) {
             sendUnauthorized(response, "Token is invalid or expired");
         } finally {
             UserContext.clear();
+            SecurityContextHolder.clearContext();
         }
     }
 

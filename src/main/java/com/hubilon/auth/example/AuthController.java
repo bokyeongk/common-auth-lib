@@ -82,7 +82,8 @@ public class AuthController {
     public void callback(@RequestParam String code,
                          @RequestParam String state,
                          HttpSession session,
-                         HttpServletResponse response) throws IOException {
+                         HttpServletResponse response,
+                         org.springframework.security.web.csrf.CsrfToken csrfToken) throws IOException {
 
         String savedState = (String) session.getAttribute(SESSION_STATE_KEY);
         session.removeAttribute(SESSION_STATE_KEY);
@@ -106,6 +107,10 @@ public class AuthController {
         // refresh_token: /auth/refresh 엔드포인트가 서버에서 직접 읽음 (HttpOnly, JS 접근 불가)
         setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
                 tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
+
+        if (csrfToken != null) {
+            response.setHeader("X-XSRF-TOKEN", csrfToken.getToken());
+        }
 
         response.sendRedirect(properties.getPostLoginRedirectUri());
     }

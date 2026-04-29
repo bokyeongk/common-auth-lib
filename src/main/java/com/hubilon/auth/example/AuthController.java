@@ -121,11 +121,11 @@ public class AuthController {
      * POST /auth/logout  (X-XSRF-TOKEN 헤더 필요)
      */
     @PostMapping("/logout")
-    public void logout(HttpServletRequest request, HttpSession session, HttpServletResponse response) throws IOException {
+    public ResponseEntity<Void> logout(HttpServletRequest request, HttpSession session, HttpServletResponse response) {
         String idToken = (String) session.getAttribute(SESSION_ID_TOKEN_KEY);
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
-        // 백채널: refresh_token으로 Keycloak 세션 즉시 종료 (브라우저 redirect 전에 보장)
+        // 백채널: refresh_token으로 Keycloak SSO 세션 즉시 종료
         if (StringUtils.hasText(refreshToken)) {
             try {
                 keycloakClient.revokeToken(refreshToken);
@@ -138,7 +138,8 @@ public class AuthController {
         clearAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE);
         clearAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
-        response.sendRedirect(keycloakClient.getLogoutUrl(idToken));
+        // 204 반환 — 프론트엔드가 window.location.href로 직접 이동 (CORS 방지)
+        return ResponseEntity.noContent().build();
     }
 
     /**

@@ -4,8 +4,8 @@ plugins {
     id 'maven-publish'
 }
 
-group = 'com.mycompany'
-version = '1.0.3'
+group = 'com.hubilon'
+version = '1.0.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17

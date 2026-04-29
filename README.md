@@ -92,7 +92,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.mycompany:common-auth-lib:1.0.0'
+    implementation 'com.hubilon:common-auth-lib:1.0.0'
 }
 ```
 
@@ -148,7 +148,7 @@ git push origin main
 ```groovy
 // 각 서비스의 build.gradle
 dependencies {
-    implementation 'com.mycompany:common-auth-lib:1.1.0'  // 버전 변경
+    implementation 'com.hubilon:common-auth-lib:1.1.0'  // 버전 변경
 }
 ```
 

@@ -17,7 +17,7 @@ Spring Boot 마이크로서비스용 Keycloak 공통 인증 라이브러리.
 - Java 17 / Spring Boot 3.3.4 (Spring Security 6.3.x)
 - Keycloak Authorization Code Flow
 - `java-library` + `maven-publish` 플러그인
-- group: `com.mycompany`, artifact: `common-auth-lib`, version: `1.0.0`
+- group: `com.hubilon`, artifact: `common-auth-lib`, version: `1.0.0`
 
 ---
 
@@ -242,7 +242,7 @@ repositories {
     }
 }
 dependencies {
-    implementation 'com.mycompany:common-auth-lib:1.0.0'
+    implementation 'com.hubilon:common-auth-lib:1.0.0'
 }
 ```
 

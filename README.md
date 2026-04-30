@@ -92,7 +92,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.hubilon:common-auth-lib:1.0.0'
+    implementation 'com.hubilon:common-auth-lib:1.0.1'
 }
 ```
 
@@ -130,7 +130,7 @@ keycloak:
 
 ### 5. 컨트롤러 — 자동 등록 (코드 불필요)
 
-`GET /auth/login`, `GET /auth/callback`, `GET /auth/logout`, `POST /auth/refresh` 엔드포인트가
+`1.0.1`부터 `GET /auth/login`, `GET /auth/callback`, `GET /auth/logout`, `POST /auth/refresh` 엔드포인트가
 라이브러리에 내장되어 **별도 코드 없이 자동 등록**됩니다.
 
 #### 커스텀 컨트롤러가 필요한 경우
@@ -187,7 +187,7 @@ dependencies {
 
 | 클래스 | 역할 |
 |---|---|
-| `KeycloakAuthController` | login / callback / logout / refresh 엔드포인트 자동 등록 |
+| `KeycloakAuthController` | login / callback / logout / refresh 엔드포인트 자동 등록 (1.0.1+) |
 | `KeycloakClient` | Authorization URL 생성 / code→토큰 교환 / 로그아웃 URL / 토큰 재발급 |
 | `KeycloakTokenFilter` | 모든 API 요청의 Bearer 토큰 + HttpOnly 쿠키 자동 검증 |
 | `SecurityConfig` | Spring Security + CSRF(CookieCsrfTokenRepository) 자동 등록 |

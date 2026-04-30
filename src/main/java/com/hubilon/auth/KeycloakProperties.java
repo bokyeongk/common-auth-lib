@@ -40,6 +40,27 @@ public class KeycloakProperties {
     /** Ant-pattern paths that bypass token validation (e.g. /public/**, /health) */
     private List<String> permitAllPaths = new ArrayList<>();
 
+    private Uri uri = new Uri();
+
+    public static class Uri {
+        private String login    = "/auth/login";
+        private String logout   = "/auth/logout";
+        private String callback = "/auth/callback";
+        private String refresh  = "/auth/refresh";
+
+        public String getLogin()    { return login; }
+        public void setLogin(String login)       { this.login = login; }
+        public String getLogout()   { return logout; }
+        public void setLogout(String logout)     { this.logout = logout; }
+        public String getCallback() { return callback; }
+        public void setCallback(String callback) { this.callback = callback; }
+        public String getRefresh()  { return refresh; }
+        public void setRefresh(String refresh)   { this.refresh = refresh; }
+    }
+
+    public Uri getUri() { return uri; }
+    public void setUri(Uri uri) { this.uri = uri; }
+
     public String getServerUrl() { return serverUrl; }
     public void setServerUrl(String serverUrl) { this.serverUrl = serverUrl; }
 

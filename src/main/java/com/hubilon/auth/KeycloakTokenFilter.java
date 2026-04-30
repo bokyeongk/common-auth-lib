@@ -40,7 +40,6 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
-
     private final JwtDecoder jwtDecoder;
     private final KeycloakProperties properties;
 
@@ -52,8 +51,10 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return properties.getPermitAllPaths().stream()
-                .anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
+        KeycloakProperties.Uri uri = properties.getUri();
+        return List.of(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh())
+                       .stream().anyMatch(p -> PATH_MATCHER.match(p, path))
+                || properties.getPermitAllPaths().stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
     }
 
     @Override

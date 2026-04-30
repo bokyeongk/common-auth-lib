@@ -68,13 +68,11 @@ class SecurityConfig implements WebMvcConfigurer {
                 .csrfTokenRepository(csrfRepo)
                 // XOR 인코딩 없이 쿠키 원본값을 헤더로 그대로 전송 (SPA 친화적)
                 .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                // 인증 플로우 엔드포인트: CSRF 토큰 없이 동작 (logout/refresh는 HttpOnly 쿠키로 보호)
-                .ignoringRequestMatchers("/auth/logout", "/auth/refresh")
             )
-            // OAuth 콜백 state 파라미터 세션 저장을 위해 IF_REQUIRED 사용
             // API 필터(KeycloakTokenFilter)는 JWT 쿠키 기반으로 무상태 동작
-            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> {
+                KeycloakProperties.Uri uri = properties.getUri();
+                auth.requestMatchers(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh()).permitAll();
                 if (permitPaths.length > 0) {
                     auth.requestMatchers(permitPaths).permitAll();
                 }

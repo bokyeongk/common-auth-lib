@@ -111,17 +111,39 @@ keycloak:
   post-login-redirect-uri: /               # 로그인 후 이동 경로
   secure-cookie: true                       # 로컬 HTTP 개발 시 false
   permit-all-paths:
-    - /auth/login
-    - /auth/callback
     - /public/**
     - /health
     - /actuator/**
+  # 인증 엔드포인트 자동 등록 (기본값: true, 명시 생략 가능)
+  auth-controller:
+    enabled: true
+  # 인증 엔드포인트 경로 (기본값 사용 시 명시 생략 가능)
+  uri:
+    login: /auth/login
+    callback: /auth/callback
+    logout: /auth/logout
+    refresh: /auth/refresh
 ```
 
-### 5. 컨트롤러 추가
+> `permit-all-paths`에 `/auth/login`, `/auth/callback`을 별도로 추가하지 않아도 됩니다.
+> `keycloak.uri.*`에 설정된 경로는 라이브러리가 자동으로 `permitAll()` 처리합니다.
 
-`src/main/java/com/hubilon/auth/example/AuthController.java`를 서비스에 복사합니다.
-패키지명만 변경하면 바로 사용 가능합니다.
+### 5. 컨트롤러 — 자동 등록 (코드 불필요)
+
+`GET /auth/login`, `GET /auth/callback`, `GET /auth/logout`, `POST /auth/refresh` 엔드포인트가
+라이브러리에 내장되어 **별도 코드 없이 자동 등록**됩니다.
+
+#### 커스텀 컨트롤러가 필요한 경우
+
+엔드포인트 동작을 직접 제어해야 하는 경우 라이브러리 컨트롤러를 비활성화하고 직접 구현합니다.
+
+```yaml
+keycloak:
+  auth-controller:
+    enabled: false   # 라이브러리 기본 컨트롤러 비활성화
+```
+
+`src/main/java/com/hubilon/auth/example/AuthController.java`를 참고해 직접 구현하세요.
 
 ---
 
@@ -165,13 +187,14 @@ dependencies {
 
 | 클래스 | 역할 |
 |---|---|
+| `KeycloakAuthController` | login / callback / logout / refresh 엔드포인트 자동 등록 |
 | `KeycloakClient` | Authorization URL 생성 / code→토큰 교환 / 로그아웃 URL / 토큰 재발급 |
 | `KeycloakTokenFilter` | 모든 API 요청의 Bearer 토큰 + HttpOnly 쿠키 자동 검증 |
 | `SecurityConfig` | Spring Security + CSRF(CookieCsrfTokenRepository) 자동 등록 |
 | `UserContext` | ThreadLocal 유저 정보 (userId, email, roles) |
 | `KeycloakProperties` | `application.yml` 설정값 바인딩 |
 | `@CurrentUser` | 컨트롤러 파라미터 유저 정보 주입 |
-| `AuthController` (example) | 각 서비스에 복사해서 쓰는 컨트롤러 예시 |
+| `AuthController` (example) | ⚠️ Deprecated — `KeycloakAuthController` 자동 등록으로 대체 |
 
 ## 보안 설계
 

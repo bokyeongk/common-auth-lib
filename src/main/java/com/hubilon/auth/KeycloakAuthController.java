@@ -1,8 +1,5 @@
-package com.hubilon.auth.example;
+package com.hubilon.auth;
 
-import com.hubilon.auth.KeycloakClient;
-import com.hubilon.auth.KeycloakProperties;
-import com.hubilon.auth.TokenResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -14,26 +11,22 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.util.UUID;
 
 /**
- * @deprecated {@link com.hubilon.auth.KeycloakAuthController}가 라이브러리에 내장되어 자동 등록됩니다.
- * 별도 코드 복사 없이 {@code application.yml} 설정만으로 인증 엔드포인트가 활성화됩니다.
+ * Authorization Code Flow 인증 엔드포인트. {@code KeycloakAutoConfiguration}에 의해 자동 등록된다.
  *
- * <p>엔드포인트 경로 변경 등 커스텀이 필요한 경우에만 이 파일을 참고해 직접 구현하세요:
+ * <p>비활성화하고 직접 구현하려면:
  * <pre>
  * keycloak:
  *   auth-controller:
- *     enabled: false   # 라이브러리 기본 컨트롤러 비활성화
+ *     enabled: false
  * </pre>
  */
-@Deprecated(since = "1.0.0")
 @RestController
-@RequestMapping("/auth")
-public class AuthController {
+public class KeycloakAuthController {
 
     private static final String OAUTH_STATE_COOKIE = "oauth_state";
     private static final String SESSION_ID_TOKEN_KEY = "id_token";
@@ -41,50 +34,38 @@ public class AuthController {
     private final KeycloakClient keycloakClient;
     private final KeycloakProperties properties;
 
-    public AuthController(KeycloakClient keycloakClient, KeycloakProperties properties) {
+    public KeycloakAuthController(KeycloakClient keycloakClient, KeycloakProperties properties) {
         this.keycloakClient = keycloakClient;
         this.properties = properties;
     }
 
-    /**
-     * [STEP 1] 로그인 시작.
-     * CSRF 방지용 state를 세션에 저장하고 Keycloak 로그인 페이지로 리다이렉트합니다.
-     * GET /auth/login
-     */
-    @GetMapping("/login")
+    @GetMapping("${keycloak.uri.login:/auth/login}")
     public void login(HttpServletResponse response) throws IOException {
         String state = UUID.randomUUID().toString();
-        // SameSite=Lax: Keycloak → 앱 cross-site GET 리다이렉트 시에도 쿠키 전송 허용
         ResponseCookie stateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, state)
                 .httpOnly(true)
                 .secure(properties.isSecureCookie())
                 .sameSite("Lax")
-                .path("/auth/callback")
+                .path(properties.getUri().getCallback())
                 .maxAge(300)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, stateCookie.toString());
         response.sendRedirect(keycloakClient.getAuthorizationUrl(state));
     }
 
-    /**
-     * [STEP 2] Keycloak 콜백 처리.
-     * code를 토큰으로 교환하고 access_token, refresh_token을 HttpOnly 쿠키로 발급합니다.
-     * GET /auth/callback?code=...&state=...
-     */
-    @GetMapping("/callback")
-    public void callback(@RequestParam String code,
-                         @RequestParam String state,
+    @GetMapping("${keycloak.uri.callback:/auth/callback}")
+    public void callback(@RequestParam("code") String code,
+                         @RequestParam("state") String state,
                          HttpServletRequest request,
                          HttpServletResponse response,
                          CsrfToken csrfToken) throws IOException {
 
-        // 세션 대신 쿠키에서 state 읽기: cross-site 리다이렉트 시 JSESSIONID 미전송 문제 방지
         String savedState = extractCookieValue(request, OAUTH_STATE_COOKIE);
         ResponseCookie clearStateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, "")
                 .httpOnly(true)
                 .secure(properties.isSecureCookie())
                 .sameSite("Lax")
-                .path("/auth/callback")
+                .path(properties.getUri().getCallback())
                 .maxAge(0)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, clearStateCookie.toString());
@@ -96,17 +77,13 @@ public class AuthController {
 
         TokenResponse tokens = keycloakClient.handleCallback(code);
 
-        // id_token은 SSO 로그아웃(id_token_hint)에 필요하므로 서버 세션에 보관
         HttpSession session = request.getSession(true);
         if (StringUtils.hasText(tokens.getIdToken())) {
             session.setAttribute(SESSION_ID_TOKEN_KEY, tokens.getIdToken());
         }
 
-        // access_token: API 요청마다 자동 전송 (HttpOnly, JS 접근 불가)
         setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
                 tokens.getAccessToken(), (int) tokens.getExpiresIn());
-
-        // refresh_token: /auth/refresh 엔드포인트가 서버에서 직접 읽음 (HttpOnly, JS 접근 불가)
         setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
                 tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
 
@@ -117,22 +94,16 @@ public class AuthController {
         response.sendRedirect(properties.getPostLoginRedirectUri());
     }
 
-    /**
-     * [STEP 3] 로그아웃.
-     * HttpOnly 쿠키를 삭제하고 Keycloak SSO 세션까지 만료시킵니다.
-     * POST /auth/logout  (X-XSRF-TOKEN 헤더 필요)
-     */
-    @GetMapping("/logout")
-    public void logout(HttpServletRequest request, HttpSession session, HttpServletResponse response) throws IOException {
+    @GetMapping("${keycloak.uri.logout:/auth/logout}")
+    public void logout(HttpServletRequest request, HttpSession session,
+                       HttpServletResponse response) throws IOException {
         String idToken = (String) session.getAttribute(SESSION_ID_TOKEN_KEY);
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
-        // 백채널: refresh_token으로 Keycloak 세션 즉시 종료 (브라우저 redirect 전에 보장)
         if (StringUtils.hasText(refreshToken)) {
             try {
                 keycloakClient.revokeToken(refreshToken);
             } catch (Exception ignored) {
-                // 이미 만료된 토큰이면 무시
             }
         }
 
@@ -143,12 +114,7 @@ public class AuthController {
         response.sendRedirect(keycloakClient.getLogoutUrl(idToken));
     }
 
-    /**
-     * Access Token 재발급.
-     * refresh_token HttpOnly 쿠키를 서버가 직접 읽어 새 토큰을 발급합니다.
-     * POST /auth/refresh  (X-XSRF-TOKEN 헤더 필요)
-     */
-    @PostMapping("/refresh")
+    @PostMapping("${keycloak.uri.refresh:/auth/refresh}")
     public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
@@ -165,8 +131,6 @@ public class AuthController {
 
         return ResponseEntity.noContent().build();
     }
-
-    // ── 쿠키 유틸 ────────────────────────────────────────────────────
 
     private void setAuthCookie(HttpServletResponse response, String name, String value, int maxAge) {
         ResponseCookie cookie = ResponseCookie.from(name, value)

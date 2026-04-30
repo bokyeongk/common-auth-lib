@@ -41,6 +41,16 @@ public class KeycloakProperties {
     private List<String> permitAllPaths = new ArrayList<>();
 
     private Uri uri = new Uri();
+    private AuthController authController = new AuthController();
+
+    public static class AuthController {
+        private boolean enabled = true;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    }
+
+    public AuthController getAuthController() { return authController; }
+    public void setAuthController(AuthController authController) { this.authController = authController; }
 
     public static class Uri {
         private String login    = "/auth/login";

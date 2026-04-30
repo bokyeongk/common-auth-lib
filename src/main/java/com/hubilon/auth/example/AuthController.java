@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -50,7 +51,7 @@ import java.util.UUID;
 @RequestMapping("/auth")
 public class AuthController {
 
-    private static final String SESSION_STATE_KEY = "oauth_state";
+    private static final String OAUTH_STATE_COOKIE = "oauth_state";
     private static final String SESSION_ID_TOKEN_KEY = "id_token";
 
     private final KeycloakClient keycloakClient;
@@ -67,9 +68,17 @@ public class AuthController {
      * GET /auth/login
      */
     @GetMapping("/login")
-    public void login(HttpSession session, HttpServletResponse response) throws IOException {
+    public void login(HttpServletResponse response) throws IOException {
         String state = UUID.randomUUID().toString();
-        session.setAttribute(SESSION_STATE_KEY, state);
+        // SameSite=Lax: Keycloak → 앱 cross-site GET 리다이렉트 시에도 쿠키 전송 허용
+        ResponseCookie stateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, state)
+                .httpOnly(true)
+                .secure(properties.isSecureCookie())
+                .sameSite("Lax")
+                .path("/auth/callback")
+                .maxAge(300)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, stateCookie.toString());
         response.sendRedirect(keycloakClient.getAuthorizationUrl(state));
     }
 
@@ -81,12 +90,20 @@ public class AuthController {
     @GetMapping("/callback")
     public void callback(@RequestParam String code,
                          @RequestParam String state,
-                         HttpSession session,
+                         HttpServletRequest request,
                          HttpServletResponse response,
-                         org.springframework.security.web.csrf.CsrfToken csrfToken) throws IOException {
+                         CsrfToken csrfToken) throws IOException {
 
-        String savedState = (String) session.getAttribute(SESSION_STATE_KEY);
-        session.removeAttribute(SESSION_STATE_KEY);
+        // 세션 대신 쿠키에서 state 읽기: cross-site 리다이렉트 시 JSESSIONID 미전송 문제 방지
+        String savedState = extractCookieValue(request, OAUTH_STATE_COOKIE);
+        ResponseCookie clearStateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, "")
+                .httpOnly(true)
+                .secure(properties.isSecureCookie())
+                .sameSite("Lax")
+                .path("/auth/callback")
+                .maxAge(0)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, clearStateCookie.toString());
 
         if (savedState == null || !savedState.equals(state)) {
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid state parameter");
@@ -96,6 +113,7 @@ public class AuthController {
         TokenResponse tokens = keycloakClient.handleCallback(code);
 
         // id_token은 SSO 로그아웃(id_token_hint)에 필요하므로 서버 세션에 보관
+        HttpSession session = request.getSession(true);
         if (StringUtils.hasText(tokens.getIdToken())) {
             session.setAttribute(SESSION_ID_TOKEN_KEY, tokens.getIdToken());
         }
@@ -120,12 +138,12 @@ public class AuthController {
      * HttpOnly 쿠키를 삭제하고 Keycloak SSO 세션까지 만료시킵니다.
      * POST /auth/logout  (X-XSRF-TOKEN 헤더 필요)
      */
-    @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletRequest request, HttpSession session, HttpServletResponse response) {
+    @GetMapping("/logout")
+    public void logout(HttpServletRequest request, HttpSession session, HttpServletResponse response) throws IOException {
         String idToken = (String) session.getAttribute(SESSION_ID_TOKEN_KEY);
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
-        // 백채널: refresh_token으로 Keycloak SSO 세션 즉시 종료
+        // 백채널: refresh_token으로 Keycloak 세션 즉시 종료 (브라우저 redirect 전에 보장)
         if (StringUtils.hasText(refreshToken)) {
             try {
                 keycloakClient.revokeToken(refreshToken);
@@ -138,8 +156,7 @@ public class AuthController {
         clearAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE);
         clearAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
-        // 204 반환 — 프론트엔드가 window.location.href로 직접 이동 (CORS 방지)
-        return ResponseEntity.noContent().build();
+        response.sendRedirect(keycloakClient.getLogoutUrl(idToken));
     }
 
     /**

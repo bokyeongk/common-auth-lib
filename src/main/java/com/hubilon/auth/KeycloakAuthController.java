@@ -28,9 +28,6 @@ import java.util.UUID;
 @RestController
 public class KeycloakAuthController {
 
-    private static final String OAUTH_STATE_COOKIE = "oauth_state";
-    private static final String SESSION_ID_TOKEN_KEY = "id_token";
-
     private final KeycloakClient keycloakClient;
     private final KeycloakProperties properties;
 
@@ -42,7 +39,7 @@ public class KeycloakAuthController {
     @GetMapping("${keycloak.uri.login:/auth/login}")
     public void login(HttpServletResponse response) throws IOException {
         String state = UUID.randomUUID().toString();
-        ResponseCookie stateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, state)
+        ResponseCookie stateCookie = ResponseCookie.from(properties.getOauthStateCookie(), state)
                 .httpOnly(true)
                 .secure(properties.isSecureCookie())
                 .sameSite("Lax")
@@ -60,8 +57,8 @@ public class KeycloakAuthController {
                          HttpServletResponse response,
                          CsrfToken csrfToken) throws IOException {
 
-        String savedState = extractCookieValue(request, OAUTH_STATE_COOKIE);
-        ResponseCookie clearStateCookie = ResponseCookie.from(OAUTH_STATE_COOKIE, "")
+        String savedState = extractCookieValue(request, properties.getOauthStateCookie());
+        ResponseCookie clearStateCookie = ResponseCookie.from(properties.getOauthStateCookie(), "")
                 .httpOnly(true)
                 .secure(properties.isSecureCookie())
                 .sameSite("Lax")
@@ -79,7 +76,7 @@ public class KeycloakAuthController {
 
         HttpSession session = request.getSession(true);
         if (StringUtils.hasText(tokens.getIdToken())) {
-            session.setAttribute(SESSION_ID_TOKEN_KEY, tokens.getIdToken());
+            session.setAttribute(properties.getSessionIdTokenKey(), tokens.getIdToken());
         }
 
         setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
@@ -97,7 +94,7 @@ public class KeycloakAuthController {
     @GetMapping("${keycloak.uri.logout:/auth/logout}")
     public void logout(HttpServletRequest request, HttpSession session,
                        HttpServletResponse response) throws IOException {
-        String idToken = (String) session.getAttribute(SESSION_ID_TOKEN_KEY);
+        String idToken = (String) session.getAttribute(properties.getSessionIdTokenKey());
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);
 
         if (StringUtils.hasText(refreshToken)) {

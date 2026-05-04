@@ -37,6 +37,12 @@ public class KeycloakProperties {
     /** refresh_token 쿠키 이름 */
     public static final String REFRESH_TOKEN_COOKIE = "refresh_token";
 
+    /** OAuth state 쿠키 이름. 기본값: oauth_state */
+    private String oauthStateCookie = "oauth_state";
+
+    /** 세션에 id_token 저장 시 사용할 키. 기본값: id_token */
+    private String sessionIdTokenKey = "id_token";
+
     /** Ant-pattern paths that bypass token validation (e.g. /public/**, /health) */
     private List<String> permitAllPaths = new ArrayList<>();
 
@@ -101,6 +107,12 @@ public class KeycloakProperties {
 
     public boolean isSecureCookie() { return secureCookie; }
     public void setSecureCookie(boolean secureCookie) { this.secureCookie = secureCookie; }
+
+    public String getOauthStateCookie() { return oauthStateCookie; }
+    public void setOauthStateCookie(String oauthStateCookie) { this.oauthStateCookie = oauthStateCookie; }
+
+    public String getSessionIdTokenKey() { return sessionIdTokenKey; }
+    public void setSessionIdTokenKey(String sessionIdTokenKey) { this.sessionIdTokenKey = sessionIdTokenKey; }
 
     public List<String> getPermitAllPaths() { return permitAllPaths; }
     public void setPermitAllPaths(List<String> permitAllPaths) { this.permitAllPaths = permitAllPaths; }

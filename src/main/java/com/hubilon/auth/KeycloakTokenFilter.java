@@ -19,8 +19,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +42,13 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+    private static final Set<String> KNOWN_CLAIMS = Set.of(
+            "sub", "preferred_username", "email",
+            "realm_access", "resource_access",
+            "iss", "aud", "exp", "iat", "jti",
+            "typ", "azp", "sid", "nonce", "auth_time",
+            "acr", "session_state", "at_hash", "c_hash"
+    );
     private final JwtDecoder jwtDecoder;
     private final KeycloakProperties properties;
 
@@ -134,7 +143,16 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
             }
         }
 
-        return new UserInfo(userId, username, email, roles);
+        Map<String, Object> attributes = jwt.getClaims().entrySet().stream()
+                .filter(e -> !KNOWN_CLAIMS.contains(e.getKey()))
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue,
+                        (a, b) -> b,
+                        LinkedHashMap::new
+                ));
+
+        return new UserInfo(userId, username, email, roles, attributes);
     }
 
     private void sendUnauthorized(HttpServletResponse response, String message) throws IOException {

@@ -101,6 +101,85 @@ class KeycloakTokenFilterTest {
     }
 
     @Test
+    void collectsCustomClaims_intoAttributes() throws Exception {
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .subject("user-123")
+                .claim("preferred_username", "john")
+                .claim("email", "john@example.com")
+                .claim("department", "engineering")
+                .claim("employee_id", 42)
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .build();
+
+        when(jwtDecoder.decode("valid.token")).thenReturn(jwt);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/data");
+        request.addHeader("Authorization", "Bearer valid.token");
+
+        UserInfo[] captured = new UserInfo[1];
+        filter.doFilterInternal(request, new MockHttpServletResponse(),
+                (req, res) -> captured[0] = UserContext.get());
+
+        assertThat(captured[0].getAttribute("department")).isEqualTo("engineering");
+        assertThat(captured[0].getAttribute("employee_id")).isEqualTo(42);
+    }
+
+    @Test
+    void excludesKnownClaims_fromAttributes() throws Exception {
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .subject("user-123")
+                .claim("preferred_username", "john")
+                .claim("email", "john@example.com")
+                .claim("acr", "1")
+                .claim("session_state", "abc-session")
+                .claim("department", "engineering")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .build();
+
+        when(jwtDecoder.decode("valid.token")).thenReturn(jwt);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/data");
+        request.addHeader("Authorization", "Bearer valid.token");
+
+        UserInfo[] captured = new UserInfo[1];
+        filter.doFilterInternal(request, new MockHttpServletResponse(),
+                (req, res) -> captured[0] = UserContext.get());
+
+        assertThat(captured[0].getAttributes()).doesNotContainKey("acr");
+        assertThat(captured[0].getAttributes()).doesNotContainKey("session_state");
+        assertThat(captured[0].getAttributes()).doesNotContainKey("sub");
+        assertThat(captured[0].getAttributes()).doesNotContainKey("email");
+        assertThat(captured[0].getAttributes()).containsKey("department");
+    }
+
+    @Test
+    void returnsEmptyAttributes_whenNoCustomClaims() throws Exception {
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .subject("user-123")
+                .claim("preferred_username", "john")
+                .claim("email", "john@example.com")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .build();
+
+        when(jwtDecoder.decode("valid.token")).thenReturn(jwt);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/data");
+        request.addHeader("Authorization", "Bearer valid.token");
+
+        UserInfo[] captured = new UserInfo[1];
+        filter.doFilterInternal(request, new MockHttpServletResponse(),
+                (req, res) -> captured[0] = UserContext.get());
+
+        assertThat(captured[0].getAttributes()).isEmpty();
+    }
+
+    @Test
     void clearsUserContext_afterRequest() throws Exception {
         Jwt jwt = Jwt.withTokenValue("token")
                 .header("alg", "RS256")

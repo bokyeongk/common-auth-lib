@@ -111,6 +111,46 @@ public class KeycloakAuthController {
         response.sendRedirect(keycloakClient.getLogoutUrl(idToken));
     }
 
+    /**
+     * ROPC Flow 직접 로그인. Keycloak Admin에서 Direct Access Grants Enabled 필요.
+     *
+     * <p>permit-all-paths에 이 경로가 등록된 경우 CSRF 필터가 우회될 수 있다.
+     * csrfToken null 여부로 보호 상태를 검증한다.
+     */
+    @PostMapping("${keycloak.uri.login:/auth/login}")
+    public ResponseEntity<LoginResponse> loginWithPassword(
+            @RequestBody LoginRequest loginRequest,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            CsrfToken csrfToken) {
+
+        if (csrfToken == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        TokenResponse tokens;
+        try {
+            tokens = keycloakClient.loginWithPassword(
+                    loginRequest.getUsername(), loginRequest.getPassword());
+        } catch (KeycloakClient.KeycloakAuthException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        HttpSession session = request.getSession(true);
+        if (StringUtils.hasText(tokens.getIdToken())) {
+            session.setAttribute(properties.getSessionIdTokenKey(), tokens.getIdToken());
+        }
+
+        setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
+                tokens.getAccessToken(), (int) tokens.getExpiresIn());
+        setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
+                tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
+
+        response.setHeader("X-XSRF-TOKEN", csrfToken.getToken());
+
+        return ResponseEntity.ok(LoginResponse.from(tokens));
+    }
+
     @PostMapping("${keycloak.uri.refresh:/auth/refresh}")
     public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);

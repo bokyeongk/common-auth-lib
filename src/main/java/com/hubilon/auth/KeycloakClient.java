@@ -3,7 +3,7 @@ package com.hubilon.auth;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -127,9 +127,30 @@ public class KeycloakClient {
                     new HttpEntity<>(body, headers),
                     Void.class
             );
-        } catch (HttpClientErrorException e) {
+        } catch (RestClientException e) {
             throw new KeycloakAuthException("Token revocation failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * ROPC(Resource Owner Password Credentials) Flow로 토큰을 발급한다.
+     *
+     * <p><b>전제조건:</b> Keycloak Admin에서 해당 Client의 {@code Direct Access Grants Enabled} 옵션이
+     * 활성화되어 있어야 한다. OAuth 2.1에서 이 Flow는 공식 제거되었으므로 사용에 주의한다.
+     *
+     * @param username Keycloak username 또는 email
+     * @param password 사용자 비밀번호
+     * @throws KeycloakAuthException 인증 실패 또는 Keycloak 서버 오류 시
+     */
+    public TokenResponse loginWithPassword(String username, String password) {
+        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+        body.add("grant_type", "password");
+        body.add("client_id", properties.getClientId());
+        body.add("client_secret", properties.getClientSecret());
+        body.add("username", username);
+        body.add("password", password);
+
+        return postToTokenEndpoint(body);
     }
 
     private TokenResponse postToTokenEndpoint(MultiValueMap<String, String> body) {
@@ -142,9 +163,13 @@ public class KeycloakClient {
                     new HttpEntity<>(body, headers),
                     TokenResponse.class
             );
-            return response.getBody();
-        } catch (HttpClientErrorException e) {
-            throw new KeycloakAuthException("Keycloak token request failed: " + e.getResponseBodyAsString(), e);
+            TokenResponse tokenResponse = response.getBody();
+            if (tokenResponse == null) {
+                throw new KeycloakAuthException("Keycloak returned empty token response", null);
+            }
+            return tokenResponse;
+        } catch (RestClientException e) {
+            throw new KeycloakAuthException("Keycloak token request failed: " + e.getMessage(), e);
         }
     }
 

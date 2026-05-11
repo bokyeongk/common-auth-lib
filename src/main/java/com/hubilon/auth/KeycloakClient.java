@@ -6,6 +6,7 @@ import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -245,6 +246,44 @@ public class KeycloakClient {
         } catch (RestClientException e) {
             throw new KeycloakAuthException("Keycloak register failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Admin API로 사용자 목록을 조회해 특정 파라미터 기준으로 존재 여부를 반환한다.
+     * exact=true: Keycloak이 완전 일치 검색만 수행하도록 강제 (부분 일치 오탐 방지)
+     */
+    private boolean userExistsByParam(String paramName, String paramValue) {
+        String url = UriComponentsBuilder.fromHttpUrl(properties.getAdminUsersUri())
+                .queryParam(paramName, paramValue)
+                .queryParam("exact", "true")
+                .encode()
+                .build()
+                .toUriString();
+
+        String adminToken = obtainAdminToken();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adminToken);
+
+        try {
+            ResponseEntity<List> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), List.class);
+            List<?> users = response.getBody();
+            return users != null && !users.isEmpty();
+        } catch (HttpServerErrorException e) {
+            throw new KeycloakUnavailableException("Keycloak server error during user lookup: " + e.getMessage(), e);
+        } catch (HttpClientErrorException e) {
+            throw new KeycloakAuthException("Keycloak client error during user lookup: " + e.getMessage(), e);
+        } catch (RestClientException e) {
+            throw new KeycloakUnavailableException("Network error during user lookup: " + e.getMessage(), e);
+        }
+    }
+
+    public boolean existsByUsername(String username) {
+        return userExistsByParam("username", username);
+    }
+
+    public boolean existsByEmail(String email) {
+        return userExistsByParam("email", email);
     }
 
     private String parseErrorMessage(String responseBody) {

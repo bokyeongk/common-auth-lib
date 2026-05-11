@@ -51,6 +51,9 @@ keycloak:
     callback: /auth/callback
     logout: /auth/logout
     refresh: /auth/refresh
+    register: /auth/register
+    checkUsername: /auth/check-username
+    checkEmail: /auth/check-email
 ```
 
 > `keycloak.uri.*`에 설정된 경로는 라이브러리가 자동으로 `permitAll()` 처리합니다.
@@ -345,14 +348,17 @@ React → 401 응답 수신
 
 ## 4. CSRF 토큰 처리 규칙
 
-| 엔드포인트 | CSRF 검증 | 이유 |
-|---|---|---|
-| `GET /auth/login` | 제외 (GET) | GET은 CSRF 대상 아님 |
-| `POST /auth/login` | **필요** | `X-XSRF-TOKEN` 헤더 전송 필요 |
-| `GET /auth/callback` | 제외 (GET) | GET은 CSRF 대상 아님 |
-| `GET /auth/logout` | 제외 (GET) | GET은 CSRF 대상 아님 |
-| `POST /auth/refresh` | **제외** | 서버에서 `ignoringRequestMatchers` 처리 |
-| `POST /api/**` (일반 API) | **필요** | `X-XSRF-TOKEN` 헤더 전송 필요 |
+| 엔드포인트                      | CSRF 검증 | 이유 |
+|----------------------------|---|---|
+| `GET /auth/login`          | 제외 (GET) | GET은 CSRF 대상 아님 |
+| `POST /auth/login`         | **필요** | `X-XSRF-TOKEN` 헤더 전송 필요 |
+| `GET /auth/callback`       | 제외 (GET) | GET은 CSRF 대상 아님 |
+| `GET /auth/logout`         | 제외 (GET) | GET은 CSRF 대상 아님 |
+| `POST /auth/refresh`       | **제외** | 서버에서 `ignoringRequestMatchers` 처리 |
+| `POST /auth/register`      | **필요** | `X-XSRF-TOKEN` 헤더 전송 필요 |
+| `POST /auth/check-usernam` | 제외 (GET) | GET은 CSRF 대상 아님 |
+| `POST /auth/check-email`   | 제외 (GET) | GET은 CSRF 대상 아님 |
+| `POST /api/**` (일반 API)    | **필요** | `X-XSRF-TOKEN` 헤더 전송 필요 |
 
 `XSRF-TOKEN` 쿠키는 서버 최초 GET 요청 시 자동 발급됩니다.  
 Authorization Code Flow에서는 `/auth/callback` 응답 시점에, REST API 직접 로그인에서는 로그인 전 GET 요청 시 발급됩니다.  

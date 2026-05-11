@@ -179,6 +179,42 @@ public class KeycloakAuthController {
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
+    @GetMapping("${keycloak.uri.check-username:/auth/check-username}")
+    public ResponseEntity<DuplicateCheckResponse> checkUsername(
+            @RequestParam(value = "username", required = false) String username) {
+
+        if (!StringUtils.hasText(username)) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            boolean exists = keycloakClient.existsByUsername(username);
+            return ResponseEntity.ok(new DuplicateCheckResponse(exists));
+        } catch (KeycloakClient.KeycloakUnavailableException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        } catch (KeycloakClient.KeycloakAuthException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+    }
+
+    @GetMapping("${keycloak.uri.check-email:/auth/check-email}")
+    public ResponseEntity<DuplicateCheckResponse> checkEmail(
+            @RequestParam(value = "email", required = false) String email) {
+
+        if (!StringUtils.hasText(email)) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            boolean exists = keycloakClient.existsByEmail(email);
+            return ResponseEntity.ok(new DuplicateCheckResponse(exists));
+        } catch (KeycloakClient.KeycloakUnavailableException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        } catch (KeycloakClient.KeycloakAuthException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+    }
+
     @PostMapping("${keycloak.uri.refresh:/auth/refresh}")
     public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);

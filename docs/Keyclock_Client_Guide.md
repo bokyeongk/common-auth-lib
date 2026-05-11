@@ -83,10 +83,4 @@ Clients → 해당 Client 선택 → Client scopes 탭 → my-service-dedicated 
     manage-users 역할 추가
 
 
----
-
-### 1-2. Settings 탭 → Login settings → Login theme 선택 → Save
-    휴빌론 테스트 서버 테마 위치 : /opt/keycloak-data/themes/
-    추가 시 /opt/keycloak-data/themes/ 디렉토리에 테마 폴더를 생성 후 테마 파일 업로드 → Keycloak 재시작
-    > docker restart keycloak-sso
 

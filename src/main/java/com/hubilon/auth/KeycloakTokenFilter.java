@@ -61,7 +61,7 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         KeycloakProperties.Uri uri = properties.getUri();
-        return List.of(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh(), uri.getRegister())
+        return List.of(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh(), uri.getRegister(), uri.getCheckEmail(), uri.getCheckUsername())
                        .stream().anyMatch(p -> PATH_MATCHER.match(p, path))
                 || properties.getPermitAllPaths().stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path));
     }

@@ -72,7 +72,7 @@ class SecurityConfig implements WebMvcConfigurer {
             // API 필터(KeycloakTokenFilter)는 JWT 쿠키 기반으로 무상태 동작
             .authorizeHttpRequests(auth -> {
                 KeycloakProperties.Uri uri = properties.getUri();
-                auth.requestMatchers(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh()).permitAll();
+                auth.requestMatchers(uri.getLogin(), uri.getCallback(), uri.getLogout(), uri.getRefresh(), uri.getRegister()).permitAll();
                 if (permitPaths.length > 0) {
                     auth.requestMatchers(permitPaths).permitAll();
                 }

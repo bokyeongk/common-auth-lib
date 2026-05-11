@@ -76,7 +76,14 @@ Clients → 해당 Client 선택 → Client scopes 탭 → my-service-dedicated 
     Add to access token: On
 
 ---
+## 4. 회원 가입 자격
+### 4-1. Clients → 해당 Client 선택 → Settings 탭 → Capability config → Service account roles On → Save
+    → Service account roles 탭 → realm-management → manage-users 역할 추가
+### 4-2. Service account roles 탭 → Assign roles → Client roles
+    manage-users 역할 추가
 
+
+---
 
 ### 1-2. Settings 탭 → Login settings → Login theme 선택 → Save
     휴빌론 테스트 서버 테마 위치 : /opt/keycloak-data/themes/

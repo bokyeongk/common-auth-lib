@@ -151,6 +151,34 @@ public class KeycloakAuthController {
         return ResponseEntity.ok(LoginResponse.from(tokens));
     }
 
+    @PostMapping("${keycloak.uri.register:/auth/register}")
+    public ResponseEntity<Void> register(
+            @RequestBody RegisterRequest request,
+            CsrfToken csrfToken) {
+
+        if (csrfToken == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (!StringUtils.hasText(request.getUsername())
+                || !StringUtils.hasText(request.getPassword())
+                || !StringUtils.hasText(request.getEmail())) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            keycloakClient.register(request);
+        } catch (KeycloakClient.KeycloakUnavailableException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        } catch (KeycloakClient.KeycloakConflictException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        } catch (KeycloakClient.KeycloakAuthException e) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
     @PostMapping("${keycloak.uri.refresh:/auth/refresh}")
     public ResponseEntity<Void> refresh(HttpServletRequest request, HttpServletResponse response) {
         String refreshToken = extractCookieValue(request, KeycloakProperties.REFRESH_TOKEN_COOKIE);

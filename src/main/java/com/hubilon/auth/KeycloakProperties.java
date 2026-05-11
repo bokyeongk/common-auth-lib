@@ -63,6 +63,7 @@ public class KeycloakProperties {
         private String logout   = "/auth/logout";
         private String callback = "/auth/callback";
         private String refresh  = "/auth/refresh";
+        private String register = "/auth/register";
 
         public String getLogin()    { return login; }
         public void setLogin(String login)       { this.login = login; }
@@ -72,6 +73,8 @@ public class KeycloakProperties {
         public void setCallback(String callback) { this.callback = callback; }
         public String getRefresh()  { return refresh; }
         public void setRefresh(String refresh)   { this.refresh = refresh; }
+        public String getRegister() { return register; }
+        public void setRegister(String register) { this.register = register; }
     }
 
     public Uri getUri() { return uri; }
@@ -135,5 +138,9 @@ public class KeycloakProperties {
 
     public String getIssuerUri() {
         return serverUrl + "/realms/" + realm;
+    }
+
+    public String getAdminUsersUri() {
+        return serverUrl + "/admin/realms/" + realm + "/users";
     }
 }

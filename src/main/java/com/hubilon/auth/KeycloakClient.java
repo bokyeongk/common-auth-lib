@@ -1,11 +1,19 @@
 package com.hubilon.auth;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Keycloak Authorization Code Flow 클라이언트.
@@ -22,6 +30,11 @@ public class KeycloakClient {
 
     private final KeycloakProperties properties;
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // Admin Token 캐싱: 만료 30초 전에 재발급하여 불필요한 네트워크 호출 방지
+    private volatile String cachedAdminToken;
+    private volatile long adminTokenExpiresAt;
 
     public KeycloakClient(KeycloakProperties properties, RestTemplate restTemplate) {
         this.properties = properties;
@@ -153,6 +166,98 @@ public class KeycloakClient {
         return postToTokenEndpoint(body);
     }
 
+    /**
+     * Keycloak Admin API 호출에 사용할 Service Account 토큰을 반환한다.
+     * 만료 30초 전까지 캐시된 토큰을 재사용한다.
+     */
+    private synchronized String obtainAdminToken() {
+        if (cachedAdminToken != null && System.currentTimeMillis() < adminTokenExpiresAt - 30_000L) {
+            return cachedAdminToken;
+        }
+
+        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+        body.add("grant_type", "client_credentials");
+        body.add("client_id", properties.getClientId());
+        body.add("client_secret", properties.getClientSecret());
+
+        try {
+            TokenResponse token = postToTokenEndpoint(body);
+            cachedAdminToken = token.getAccessToken();
+            adminTokenExpiresAt = System.currentTimeMillis() + token.getExpiresIn() * 1000L;
+            return cachedAdminToken;
+        } catch (KeycloakAuthException e) {
+            throw new KeycloakUnavailableException("Failed to obtain admin token", e);
+        }
+    }
+
+    /**
+     * Keycloak Admin API로 신규 사용자를 등록한다.
+     *
+     * @throws KeycloakUnavailableException Admin 토큰 발급 실패 시
+     * @throws KeycloakConflictException    username 또는 email 중복 시
+     * @throws KeycloakAuthException        그 외 Keycloak 오류 시
+     */
+    public void register(RegisterRequest request) {
+        String adminToken = obtainAdminToken();
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("username", request.getUsername());
+        body.put("email", request.getEmail());
+        body.put("enabled", true);
+        body.put("emailVerified", false);
+
+        if (org.springframework.util.StringUtils.hasText(request.getFirstName())) {
+            body.put("firstName", request.getFirstName());
+        }
+        if (org.springframework.util.StringUtils.hasText(request.getLastName())) {
+            body.put("lastName", request.getLastName());
+        }
+
+        body.put("credentials", List.of(Map.of(
+                "type", "password",
+                "value", request.getPassword(),
+                "temporary", false
+        )));
+
+        if (request.getAttributes() != null && !request.getAttributes().isEmpty()) {
+            Map<String, List<String>> attrs = new HashMap<>();
+            request.getAttributes().forEach((k, v) ->
+                    attrs.put(k, List.of(String.valueOf(v))));
+            body.put("attributes", attrs);
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(adminToken);
+
+        try {
+            restTemplate.postForEntity(
+                    properties.getAdminUsersUri(),
+                    new HttpEntity<>(body, headers),
+                    Void.class
+            );
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                String errorMessage = parseErrorMessage(e.getResponseBodyAsString());
+                throw new KeycloakConflictException(errorMessage);
+            }
+            throw new KeycloakAuthException("Keycloak register failed: " + e.getMessage(), e);
+        } catch (RestClientException e) {
+            throw new KeycloakAuthException("Keycloak register failed: " + e.getMessage(), e);
+        }
+    }
+
+    private String parseErrorMessage(String responseBody) {
+        try {
+            Map<String, Object> map = objectMapper.readValue(responseBody,
+                    new TypeReference<Map<String, Object>>() {});
+            Object msg = map.get("errorMessage");
+            return msg != null ? msg.toString() : responseBody;
+        } catch (Exception ignored) {
+            return responseBody;
+        }
+    }
+
     private TokenResponse postToTokenEndpoint(MultiValueMap<String, String> body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -175,6 +280,21 @@ public class KeycloakClient {
 
     public static class KeycloakAuthException extends RuntimeException {
         public KeycloakAuthException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    public static class KeycloakConflictException extends RuntimeException {
+        private final String errorMessage;
+        public KeycloakConflictException(String errorMessage) {
+            super(errorMessage);
+            this.errorMessage = errorMessage;
+        }
+        public String getErrorMessage() { return errorMessage; }
+    }
+
+    public static class KeycloakUnavailableException extends RuntimeException {
+        public KeycloakUnavailableException(String message, Throwable cause) {
             super(message, cause);
         }
     }

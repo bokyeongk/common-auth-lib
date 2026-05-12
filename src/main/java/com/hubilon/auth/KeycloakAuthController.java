@@ -30,10 +30,13 @@ public class KeycloakAuthController {
 
     private final KeycloakClient keycloakClient;
     private final KeycloakProperties properties;
+    private final KeycloakAuthService keycloakAuthService;
 
-    public KeycloakAuthController(KeycloakClient keycloakClient, KeycloakProperties properties) {
+    public KeycloakAuthController(KeycloakClient keycloakClient, KeycloakProperties properties,
+                                   KeycloakAuthService keycloakAuthService) {
         this.keycloakClient = keycloakClient;
         this.properties = properties;
+        this.keycloakAuthService = keycloakAuthService;
     }
 
     @GetMapping("${keycloak.uri.login:/auth/login}")
@@ -123,60 +126,14 @@ public class KeycloakAuthController {
             HttpServletRequest request,
             HttpServletResponse response,
             CsrfToken csrfToken) {
-
-        if (csrfToken == null) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        TokenResponse tokens;
-        try {
-            tokens = keycloakClient.loginWithPassword(
-                    loginRequest.getUsername(), loginRequest.getPassword());
-        } catch (KeycloakClient.KeycloakAuthException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-
-        HttpSession session = request.getSession(true);
-        if (StringUtils.hasText(tokens.getIdToken())) {
-            session.setAttribute(properties.getSessionIdTokenKey(), tokens.getIdToken());
-        }
-
-        setAuthCookie(response, KeycloakProperties.ACCESS_TOKEN_COOKIE,
-                tokens.getAccessToken(), (int) tokens.getExpiresIn());
-        setAuthCookie(response, KeycloakProperties.REFRESH_TOKEN_COOKIE,
-                tokens.getRefreshToken(), (int) tokens.getRefreshExpiresIn());
-
-        response.setHeader("X-XSRF-TOKEN", csrfToken.getToken());
-
-        return ResponseEntity.ok(LoginResponse.from(tokens));
+        return keycloakAuthService.loginWithPassword(loginRequest, request, response, csrfToken);
     }
 
     @PostMapping("${keycloak.uri.register:/auth/register}")
     public ResponseEntity<Void> register(
             @RequestBody RegisterRequest request,
             CsrfToken csrfToken) {
-
-        if (csrfToken == null) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        if (!StringUtils.hasText(request.getUsername())
-                || !StringUtils.hasText(request.getPassword())
-                || !StringUtils.hasText(request.getEmail())) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        try {
-            keycloakClient.register(request);
-        } catch (KeycloakClient.KeycloakUnavailableException e) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
-        } catch (KeycloakClient.KeycloakConflictException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        } catch (KeycloakClient.KeycloakAuthException e) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        return ResponseEntity.status(HttpStatus.CREATED).build();
+        return keycloakAuthService.register(request, csrfToken);
     }
 
     @GetMapping("${keycloak.uri.check-username:/auth/check-username}")

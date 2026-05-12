@@ -15,6 +15,8 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -40,6 +42,7 @@ import java.util.stream.Collectors;
  */
 public class KeycloakTokenFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(KeycloakTokenFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
     private static final Set<String> KNOWN_CLAIMS = Set.of(
@@ -88,7 +91,13 @@ public class KeycloakTokenFilter extends OncePerRequestFilter {
 
             chain.doFilter(request, response);
         } catch (JwtException e) {
-            sendUnauthorized(response, "Token is invalid or expired");
+            if (e.getCause() instanceof KeycloakConfigurationException configEx) {
+                log.warn("[Keycloak] {}", configEx.getMessage());
+                sendUnauthorized(response, "Keycloak configuration error: " + configEx.getMessage());
+            } else {
+                log.debug("[Keycloak] JWT validation failed: {}", e.getMessage());
+                sendUnauthorized(response, "Token is invalid or expired");
+            }
         } finally {
             UserContext.clear();
             SecurityContextHolder.clearContext();

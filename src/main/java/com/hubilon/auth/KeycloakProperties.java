@@ -1,6 +1,7 @@
 package com.hubilon.auth;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,8 +20,11 @@ public class KeycloakProperties {
     /** 로그아웃 후 리다이렉트할 URI. 미설정 시 redirectUri 기준 경로를 사용 */
     private String postLogoutRedirectUri;
 
-    /** OIDC scope. 기본값: openid profile email */
-    private String scope = "openid profile email";
+    /** 고정 scope. openid, profile은 항상 포함된다. */
+    private static final List<String> FIXED_SCOPES = List.of("openid", "profile");
+
+    /** 추가 scope 목록. 기본값: [email] */
+    private List<String> additionalScopes = new ArrayList<>(List.of("email"));
 
     /** 로그인 완료(callback) 후 리다이렉트할 URI. 기본값: / */
     private String postLoginRedirectUri = "/";
@@ -112,8 +116,15 @@ public class KeycloakProperties {
         this.postLogoutRedirectUri = postLogoutRedirectUri;
     }
 
-    public String getScope() { return scope; }
-    public void setScope(String scope) { this.scope = scope; }
+    /** openid, profile은 고정. additionalScopes가 뒤에 붙어 최종 scope 문자열을 구성한다. */
+    public String getScope() {
+        List<String> all = new ArrayList<>(FIXED_SCOPES);
+        all.addAll(additionalScopes);
+        return String.join(" ", all);
+    }
+
+    public List<String> getAdditionalScopes() { return additionalScopes; }
+    public void setAdditionalScopes(List<String> additionalScopes) { this.additionalScopes = additionalScopes; }
 
     public String getPostLoginRedirectUri() { return postLoginRedirectUri; }
     public void setPostLoginRedirectUri(String postLoginRedirectUri) { this.postLoginRedirectUri = postLoginRedirectUri; }
@@ -146,11 +157,42 @@ public class KeycloakProperties {
         return serverUrl + "/realms/" + realm + "/protocol/openid-connect/certs";
     }
 
+    public String getUserInfoUri() {
+        return serverUrl + "/realms/" + realm + "/protocol/openid-connect/userinfo";
+    }
+
     public String getIssuerUri() {
         return serverUrl + "/realms/" + realm;
     }
 
     public String getAdminUsersUri() {
         return serverUrl + "/admin/realms/" + realm + "/users";
+    }
+
+    /**
+     * 누락된 필수 설정 키 목록을 반환한다.
+     * 비어 있으면 설정이 완전한 것이다.
+     */
+    public List<String> getMissingRequiredFields() {
+        List<String> missing = new ArrayList<>();
+        if (!StringUtils.hasText(serverUrl))  missing.add("keycloak.server-url");
+        if (!StringUtils.hasText(realm))      missing.add("keycloak.realm");
+        if (!StringUtils.hasText(clientId))   missing.add("keycloak.client-id");
+        if (!StringUtils.hasText(clientSecret)) missing.add("keycloak.client-secret");
+        if (!StringUtils.hasText(redirectUri))  missing.add("keycloak.redirect-uri");
+        return missing;
+    }
+
+    /**
+     * 필수 설정이 모두 존재하는지 검증한다.
+     *
+     * @throws KeycloakConfigurationException 필수 설정이 누락된 경우
+     */
+    public void validate() {
+        List<String> missing = getMissingRequiredFields();
+        if (!missing.isEmpty()) {
+            throw new KeycloakConfigurationException(
+                    "Required Keycloak properties are missing: " + String.join(", ", missing));
+        }
     }
 }

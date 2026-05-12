@@ -24,7 +24,8 @@ class KeycloakAuthControllerTest {
         properties = new KeycloakProperties();
         properties.setSecureCookie(false);
         properties.setPostLoginRedirectUri("/dashboard");
-        controller = new KeycloakAuthController(keycloakClient, properties);
+        KeycloakAuthService keycloakAuthService = new KeycloakAuthService(keycloakClient, properties);
+        controller = new KeycloakAuthController(keycloakClient, properties, keycloakAuthService);
     }
 
     @Test

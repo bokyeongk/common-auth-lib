@@ -2,9 +2,15 @@ package com.hubilon.auth;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClientException;
@@ -12,9 +18,11 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Keycloak Authorization Code Flow 클라이언트.
@@ -28,6 +36,8 @@ import java.util.Map;
  * </ol>
  */
 public class KeycloakClient {
+
+    private static final Logger log = LoggerFactory.getLogger(KeycloakClient.class);
 
     private final KeycloakProperties properties;
     private final RestTemplate restTemplate;
@@ -43,6 +53,15 @@ public class KeycloakClient {
     }
 
     /**
+     * 필수 설정이 모두 존재하는지 확인한다.
+     *
+     * @throws KeycloakConfigurationException 필수 설정 누락 시 — 소비 서비스에서 catch하여 확인 가능
+     */
+    private void ensureConfigured() {
+        properties.validate();
+    }
+
+    /**
      * Keycloak 로그인 페이지로 리다이렉트할 URL을 반환합니다.
      *
      * <p>state 파라미터는 CSRF 방지용 랜덤 값으로, 컨트롤러에서 세션에 저장한 뒤
@@ -52,6 +71,7 @@ public class KeycloakClient {
      * @return Keycloak authorization URL
      */
     public String getAuthorizationUrl(String state) {
+        ensureConfigured();
         return UriComponentsBuilder
                 .fromHttpUrl(properties.getAuthorizationUri())
                 .queryParam("response_type", "code")
@@ -71,6 +91,7 @@ public class KeycloakClient {
      * @throws KeycloakAuthException 코드가 유효하지 않거나 만료된 경우
      */
     public TokenResponse handleCallback(String code) {
+        ensureConfigured();
         MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
         body.add("grant_type", "authorization_code");
         body.add("client_id", properties.getClientId());
@@ -87,6 +108,7 @@ public class KeycloakClient {
      * @throws KeycloakAuthException refresh token이 만료된 경우
      */
     public TokenResponse refreshToken(String refreshToken) {
+        ensureConfigured();
         MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
         body.add("grant_type", "refresh_token");
         body.add("client_id", properties.getClientId());
@@ -106,6 +128,7 @@ public class KeycloakClient {
      * @return Keycloak logout URL
      */
     public String getLogoutUrl(String idToken) {
+        ensureConfigured();
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(properties.getLogoutUri())
                 .queryParam("post_logout_redirect_uri", properties.getPostLogoutRedirectUri())
@@ -127,6 +150,7 @@ public class KeycloakClient {
      * @throws KeycloakAuthException 서버 오류 발생 시
      */
     public void revokeToken(String refreshToken) {
+        ensureConfigured();
         MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
         body.add("client_id", properties.getClientId());
         body.add("client_secret", properties.getClientSecret());
@@ -157,12 +181,14 @@ public class KeycloakClient {
      * @throws KeycloakAuthException 인증 실패 또는 Keycloak 서버 오류 시
      */
     public TokenResponse loginWithPassword(String username, String password) {
+        ensureConfigured();
         MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
         body.add("grant_type", "password");
         body.add("client_id", properties.getClientId());
         body.add("client_secret", properties.getClientSecret());
         body.add("username", username);
         body.add("password", password);
+        body.add("scope", properties.getScope()); // openid 포함 필수 — 없으면 /userinfo 403
 
         return postToTokenEndpoint(body);
     }
@@ -187,6 +213,7 @@ public class KeycloakClient {
             adminTokenExpiresAt = System.currentTimeMillis() + token.getExpiresIn() * 1000L;
             return cachedAdminToken;
         } catch (KeycloakAuthException e) {
+            log.warn("[Keycloak] Failed to obtain admin token: {}", e.getMessage(), e);
             throw new KeycloakUnavailableException("Failed to obtain admin token", e);
         }
     }
@@ -199,6 +226,7 @@ public class KeycloakClient {
      * @throws KeycloakAuthException        그 외 Keycloak 오류 시
      */
     public void register(RegisterRequest request) {
+        ensureConfigured();
         String adminToken = obtainAdminToken();
 
         Map<String, Object> body = new HashMap<>();
@@ -249,41 +277,172 @@ public class KeycloakClient {
     }
 
     /**
-     * Admin API로 사용자 목록을 조회해 특정 파라미터 기준으로 존재 여부를 반환한다.
-     * exact=true: Keycloak이 완전 일치 검색만 수행하도록 강제 (부분 일치 오탐 방지)
+     * ID로 사용자를 조회한다.
+     *
+     * @return 사용자가 없으면 {@code Optional.empty()}
+     * @throws KeycloakUnavailableException Keycloak 서버 오류 또는 네트워크 문제 시
      */
-    private boolean userExistsByParam(String paramName, String paramValue) {
+    public Optional<KeycloakUser> findById(String userId) {
+        ensureConfigured();
+        String adminToken = obtainAdminToken();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adminToken);
+
+        try {
+            ResponseEntity<KeycloakUser> response = restTemplate.exchange(
+                    properties.getAdminUsersUri() + "/" + userId,
+                    HttpMethod.GET, new HttpEntity<>(headers), KeycloakUser.class);
+            return Optional.ofNullable(response.getBody());
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) return Optional.empty();
+            throw new KeycloakAuthException("Keycloak user lookup failed: " + e.getMessage(), e);
+        } catch (HttpServerErrorException e) {
+            log.warn("[Keycloak] Server error during findById: {}", e.getMessage(), e);
+            throw new KeycloakUnavailableException("Keycloak server error during findById: " + e.getMessage(), e);
+        } catch (RestClientException e) {
+            log.warn("[Keycloak] Network error during findById: {}", e.getMessage(), e);
+            throw new KeycloakUnavailableException("Network error during findById: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * username으로 사용자를 조회한다 (완전 일치).
+     *
+     * @return 사용자가 없으면 {@code Optional.empty()}
+     */
+    public Optional<KeycloakUser> findByUsername(String username) {
+        ensureConfigured();
+        return getUsersByParam("username", username).stream().findFirst();
+    }
+
+    /**
+     * email로 사용자를 조회한다 (완전 일치).
+     *
+     * @return 사용자가 없으면 {@code Optional.empty()}
+     */
+    public Optional<KeycloakUser> findByEmail(String email) {
+        ensureConfigured();
+        return getUsersByParam("email", email).stream().findFirst();
+    }
+
+    /**
+     * 키워드로 사용자를 검색한다 (username, email, firstName, lastName 부분 일치).
+     *
+     * @param keyword 검색어
+     * @param first   페이지 시작 오프셋 (0부터)
+     * @param max     최대 결과 수
+     */
+    public List<KeycloakUser> searchUsers(String keyword, int first, int max) {
+        ensureConfigured();
+        String url = UriComponentsBuilder.fromHttpUrl(properties.getAdminUsersUri())
+                .queryParam("search", keyword)
+                .queryParam("first", first)
+                .queryParam("max", max)
+                .encode()
+                .build()
+                .toUriString();
+        return fetchUserList(url);
+    }
+
+    public boolean existsByUsername(String username) {
+        ensureConfigured();
+        return !getUsersByParam("username", username).isEmpty();
+    }
+
+    public boolean existsByEmail(String email) {
+        ensureConfigured();
+        return !getUsersByParam("email", email).isEmpty();
+    }
+
+    /**
+     * 요청에서 access token을 추출해 Keycloak /userinfo 엔드포인트를 호출한다.
+     *
+     * <p>토큰 추출 우선순위: Authorization Bearer 헤더 → access_token 쿠키
+     *
+     * @param request 현재 HTTP 요청
+     * @return claim 맵 (sub, preferred_username, email, custom attributes 등)
+     * @throws KeycloakAuthException        토큰 없음 또는 유효하지 않은 경우
+     * @throws KeycloakUnavailableException Keycloak 서버 오류 또는 네트워크 문제 시
+     */
+    public Map<String, Object> getUserInfo(HttpServletRequest request) {
+        ensureConfigured();
+        String accessToken = extractToken(request);
+        if (!StringUtils.hasText(accessToken)) {
+            throw new KeycloakAuthException("No access token found in request", null);
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    properties.getUserInfoUri(),
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    new ParameterizedTypeReference<>() {}
+            );
+            Map<String, Object> body = response.getBody();
+            return body != null ? body : Map.of();
+        } catch (HttpClientErrorException e) {
+            throw new KeycloakAuthException("UserInfo request failed: " + e.getMessage(), e);
+        } catch (HttpServerErrorException e) {
+            log.warn("[Keycloak] Server error during getUserInfo: {}", e.getMessage(), e);
+            throw new KeycloakUnavailableException("Keycloak server error during getUserInfo: " + e.getMessage(), e);
+        } catch (RestClientException e) {
+            log.warn("[Keycloak] Network error during getUserInfo: {}", e.getMessage(), e);
+            throw new KeycloakUnavailableException("Network error during getUserInfo: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 단일 파라미터로 완전 일치 사용자 목록을 조회한다.
+     * exact=true: 부분 일치 오탐 방지
+     */
+    private List<KeycloakUser> getUsersByParam(String paramName, String paramValue) {
         String url = UriComponentsBuilder.fromHttpUrl(properties.getAdminUsersUri())
                 .queryParam(paramName, paramValue)
                 .queryParam("exact", "true")
                 .encode()
                 .build()
                 .toUriString();
+        return fetchUserList(url);
+    }
 
+    /** Authorization 헤더(Bearer) → access_token 쿠키 순으로 토큰을 추출한다. */
+    private String extractToken(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (StringUtils.hasText(header) && header.startsWith("Bearer ")) {
+            return header.substring(7);
+        }
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (KeycloakProperties.ACCESS_TOKEN_COOKIE.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<KeycloakUser> fetchUserList(String url) {
         String adminToken = obtainAdminToken();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(adminToken);
 
         try {
-            ResponseEntity<List> response = restTemplate.exchange(
-                    url, HttpMethod.GET, new HttpEntity<>(headers), List.class);
-            List<?> users = response.getBody();
-            return users != null && !users.isEmpty();
+            ResponseEntity<KeycloakUser[]> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), KeycloakUser[].class);
+            KeycloakUser[] body = response.getBody();
+            return body != null ? Arrays.asList(body) : List.of();
         } catch (HttpServerErrorException e) {
+            log.warn("[Keycloak] Server error during user lookup: {}", e.getMessage(), e);
             throw new KeycloakUnavailableException("Keycloak server error during user lookup: " + e.getMessage(), e);
         } catch (HttpClientErrorException e) {
             throw new KeycloakAuthException("Keycloak client error during user lookup: " + e.getMessage(), e);
         } catch (RestClientException e) {
+            log.warn("[Keycloak] Network error during user lookup: {}", e.getMessage(), e);
             throw new KeycloakUnavailableException("Network error during user lookup: " + e.getMessage(), e);
         }
-    }
-
-    public boolean existsByUsername(String username) {
-        return userExistsByParam("username", username);
-    }
-
-    public boolean existsByEmail(String email) {
-        return userExistsByParam("email", email);
     }
 
     private String parseErrorMessage(String responseBody) {

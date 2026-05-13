@@ -114,27 +114,6 @@ public class KeycloakAuthController {
         response.sendRedirect(keycloakClient.getLogoutUrl(idToken));
     }
 
-    /**
-     * ROPC Flow 직접 로그인. Keycloak Admin에서 Direct Access Grants Enabled 필요.
-     *
-     * <p>permit-all-paths에 이 경로가 등록된 경우 CSRF 필터가 우회될 수 있다.
-     * csrfToken null 여부로 보호 상태를 검증한다.
-     */
-    @PostMapping("${keycloak.uri.login:/auth/login}")
-    public ResponseEntity<LoginResponse> loginWithPassword(
-            @RequestBody LoginRequest loginRequest,
-            HttpServletRequest request,
-            HttpServletResponse response,
-            CsrfToken csrfToken) {
-        return keycloakAuthService.loginWithPassword(loginRequest, request, response, csrfToken);
-    }
-
-    @PostMapping("${keycloak.uri.register:/auth/register}")
-    public ResponseEntity<Void> register(
-            @RequestBody RegisterRequest request,
-            CsrfToken csrfToken) {
-        return keycloakAuthService.register(request, csrfToken);
-    }
 
     @GetMapping("${keycloak.uri.check-username:/auth/check-username}")
     public ResponseEntity<DuplicateCheckResponse> checkUsername(

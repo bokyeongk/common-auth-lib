@@ -67,7 +67,6 @@ public class KeycloakProperties {
         private String logout   = "/auth/logout";
         private String callback = "/auth/callback";
         private String refresh  = "/auth/refresh";
-        private String register       = "/auth/register";
         private String checkUsername  = "/auth/check-username";
         private String checkEmail     = "/auth/check-email";
 
@@ -79,15 +78,13 @@ public class KeycloakProperties {
         public void setCallback(String callback) { this.callback = callback; }
         public String getRefresh()  { return refresh; }
         public void setRefresh(String refresh)   { this.refresh = refresh; }
-        public String getRegister() { return register; }
-        public void setRegister(String register) { this.register = register; }
         public String getCheckUsername() { return checkUsername; }
         public void setCheckUsername(String checkUsername) { this.checkUsername = checkUsername; }
         public String getCheckEmail() { return checkEmail; }
         public void setCheckEmail(String checkEmail) { this.checkEmail = checkEmail; }
 
         public String[] getPermitAllPaths() {
-            return new String[]{ login, logout, callback, refresh, register, checkUsername, checkEmail };
+            return new String[]{ login, logout, callback, refresh, checkUsername, checkEmail };
         }
     }
 

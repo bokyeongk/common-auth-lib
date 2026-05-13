@@ -2,8 +2,17 @@
  각 서비스에서 해당 라이브러리를 사용하기 위해 Keyclock을 추가하는 방법에 대한 가이드입니다.
 
 ---
+## 목차
 
-## 1. Keyclock Client 추가
+1. [Client 설정](#1-keyclock-client-설정)
+2. [Role 추가](#2-role-설정)
+3. [attribute 추가](#3-attribute-설정)
+4. [회원 가입 자격](#4-회원-가입-자격)
+
+---
+
+
+## 1. Keyclock Client 설정
 ### 1-1. Manage Realms → 해당 Realm 선택 → Clients → Create client
 
     1. General Settings
@@ -29,18 +38,31 @@
     application.yml 설정 시 필요
     keycloak.client-secret: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ---
-## 2. Role 추가
+## 2. Role 설정
 
-### 2-1. Client scopes 탭 → my-service-dedicated → role 기능 추가
-    Add mapper → From predefined mappers → 하단 목록 선택 → Add
+### 2-1. Client mapper 설정 
+    Clients → 해당 Client 선택 → Client scopes 탭 → my-service-dedicated
+    Mapper 탭 → Add mapper → From predefined mappers → 하단 목록 선택 → Add
     - realm roles
     - client roles
     - groups
+### 2-2. Role 추가
+#### 2-2-1. Realm 레벨
+    Realm roles → Create role → Role name 입력
+#### 2-2-2. Client 레벨
+    Clients → 해당 Client 선택 → Roles 탭 → Add role → Role name 입력
+
+### 2-3. Default Role 설정
+#### 2-3-1. Realm 레벨
+    Realm roles → Default Roles 탭 → Add selected → 생성한 Role 선택
+#### 2-3-2. Client 레벨
+    Clients → 해당 Client 선택 → Roles 탭 → Default Roles 탭 → Add selected →
 
 ---
-## 3. attribute 추가
+## 3. attribute 설정
 ### 3-1. User Profile Attribute 추가 (공통)
-Realm settings → User profile → Create attribute
+
+    Realm settings → User profile → Create attribute
         
     Attribute[Name]: attribute 이름
     Display name: attribute 이름
@@ -48,11 +70,15 @@ Realm settings → User profile → Create attribute
 
 ### 3-2. JWT 클레임 설정
 #### 3-2-1. Realm 레벨 
-Client scope 추가 : Client scopes → Create client scope
+Client scope 추가 
+
+    Client scopes → Create client scope
 
     Name: scope 이름 (예: attribute scope) 
     Type: Default (토큰 자동 포함) # 기존 Client scope엔 추가해야함
-Mapper 추가 : Client scopes → 해당 scope 선택 → Mappers 탭 → Configure new mapper → User attribute
+Mapper 추가 
+
+    Client scopes → 해당 scope 선택 → Mappers 탭 → Configure new mapper → User attribute
  
     Name: mapper 이름 (예: attribute mapper)
     Mapper Type: User Attribute (방금 생성한 attribute 선택)
@@ -121,9 +147,11 @@ Clients → 해당 Client 선택 → Client scopes 탭 → my-service-dedicated 
 
 ---
 ## 4. 회원 가입 자격
-### 4-1. Clients → 해당 Client 선택 → Settings 탭 → Capability config → Service account roles On → Save
+### 4-1. Client 자격 부여
+    Clients → 해당 Client 선택 → Settings 탭 → Capability config → Service account roles On → Save
     → Service account roles 탭 → realm-management → manage-users 역할 추가
-### 4-2. Service account roles 탭 → Assign roles → Client roles
+### 4-2. 권한 추가
+    Service account roles 탭 → Assign roles → Client roles
     manage-users 역할 추가
 
 

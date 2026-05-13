@@ -4,19 +4,36 @@
 ## 목차
 
 1. [Backend 설정](#1-backend-설정)
+   1. [요구 사항](#1-1-요구-사항)
+   2. [common-auth-lib.jar 추가](#1-2-common-auth-libjar-추가) 
+   2. [Spring Security, OAuth2 Resource Server 의존성 추가](#1-3-spring-security-oauth2-resource-server-의존성-추가)
+   3. [`application.yml`에 설정 추가](#1-4-applicationyml에-아래-설정-추가)
+   4. [자동 등록 API 목록](#1-5-자동-등록-api-목록)
+   5. [로그인, 회원가입 method](#1-6-로그인-회원가입-method)
+   6. [로그인 계정 정보 조회](#1-7-로그인-계정-정보-조회)
 2. [Frontend 설정](#2-frontend-설정)
-3. [인증 흐름 요약](#3-인증-흐름-요약)
-4. [CSRF 토큰 처리 규칙](#4-csrf-토큰-처리-규칙)
-5. [REST API 직접 로그인 (ROPC)](#5-rest-api-직접-로그인-ropc)
+   1. [필수 설정 항목](#2-1-필수-설정-항목)
+   2. [401 처리 및 토큰 갱신](#2-2-401-처리-및-토큰-갱신)
 
 ---
 ## 1. Backend 설정
-### 1-1. common-auth-lib.jar 추가
+
+### 1-1. 요구 사항
+
+| 항목 | 최소 버전 |
+|---|---|
+| Java | 17 이상 |
+| Spring Boot | 3.3.4 이상 (Spring Security 6.3.x) |
+
+> **Spring Boot 4.x는 지원하지 않습니다.**  
+> Spring Boot 4.x는 Java 21 및 Spring Security 7.x를 요구하며, API 변경으로 인해 호환되지 않습니다.
+
+### 1-2. common-auth-lib.jar 추가
 ```
 /libs/common-auth-lib-1.0.0.jar
 ```
 
-### 1-2. Spring Security, OAuth2 Resource Server 의존성 추가
+### 1-3. Spring Security, OAuth2 Resource Server 의존성 추가
 ```gradle
 dependencies {
     implementation(files("libs/common-auth-lib-1.0.0.jar"))
@@ -25,7 +42,7 @@ dependencies {
 }
 ```
 
-### 1-3. `application.yml`에 아래 설정 추가
+### 1-4. `application.yml`에 아래 설정 추가
 ```yaml
 keycloak:
   server-url: http://192.168.10.30:8080          # Keycloak 서버 주소
@@ -42,6 +59,7 @@ keycloak:
     - /public/**
     - /health
     - /actuator/**
+    - /auth/register              # 회원가입 API 허용 예시
   # 인증 엔드포인트 자동 등록 (기본값: true, 명시 생략 가능) 
   auth-controller:
     enabled: true
@@ -51,7 +69,6 @@ keycloak:
     callback: /auth/callback
     logout: /auth/logout
     refresh: /auth/refresh
-    register: /auth/register
     checkUsername: /auth/check-username
     checkEmail: /auth/check-email
 ```
@@ -63,26 +80,41 @@ keycloak:
 > ** `AuthController.java`를 참고
 
 
-### 1-4. 자동 등록 API 목록
+### 1-5. 자동 등록 API 목록
 >
 > keycloak.auth-controller.enabled = true 일 경우 아래 엔드포인트가 라이브러리에 내장되어 별도 코드 없이 자동 등록됩니다.
 >
 | Method | Path | 파라미터 | 설명 |
 |---|---|---|---|
 | GET | `/auth/login` | - | Keycloak 로그인 페이지로 리다이렉트 |
-| POST | `/auth/login` | Body: `{ username, password }` | ROPC 직접 로그인 |
 | GET | `/auth/callback` | Query: `code`, `state` | Authorization Code 콜백 처리 및 토큰 쿠키 발급 |
 | GET | `/auth/logout` | - | 쿠키 삭제 후 Keycloak SSO 세션 종료 리다이렉트 |
 | POST | `/auth/refresh` | - | refresh token 쿠키로 access token 갱신 |
-| POST | `/auth/register` | Body: `{ username, password, email, firstName?, lastName?, attributes? }` | 신규 회원가입 |
 | GET | `/auth/check-username` | Query: `username` | username 중복 여부 확인 |
 | GET | `/auth/check-email` | Query: `email` | email 중복 여부 확인 |
 
 > 경로 변경: `keycloak.uri.*` 설정으로 각 경로를 재정의할 수 있습니다.
 
 
+### 1-6. 로그인, 회원가입 method
+각 서비스에서 암호화 로그인과 회원가입을 직접 구현하려는 경우, `keycloakAuthService`의 메소드를 호출하여 Keycloak과 연동할 수 있습니다.
+```java
+    public ResponseEntity<LoginResponse> loginWithPassword(
+            @RequestBody LoginRequest loginRequest,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            CsrfToken csrfToken) {
+        return keycloakAuthService.loginWithPassword(loginRequest, request, response, csrfToken);
+    }
 
-### 1-5. 로그인 계정 정보 조회
+    public ResponseEntity<Void> register(
+            @RequestBody RegisterRequest request,
+            CsrfToken csrfToken) {
+        return keycloakAuthService.register(request, csrfToken);
+    }
+```
+
+### 1-7. 로그인 계정 정보 조회
 
 #### 토큰에 포함된 정보 — `UserContext`
 
@@ -134,7 +166,7 @@ public ResponseEntity<?> detail(HttpServletRequest request) {
 }
 ```
 
-> attribute를 `/userinfo`에만 포함하려면 Keycloak mapper 설정에서 `Add to access token: Off` / `Add to userinfo: On` 으로 설정합니다. ([Keyclock_Client_Guide.md](Keyclock_Client_Guide.md) 참고)
+> attribute를 `/userinfo`에만 포함하려면 Keycloak mapper 설정에서 `Add to access token: Off` / `Add to userinfo: On` 으로 설정합니다. ([Keyclock_Client_Guide.md](Keycloak_Client_Guide) 참고)
 
 
 ---
